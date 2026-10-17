@@ -298,15 +298,34 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       message('Этот браузер не поддерживает Web MIDI. На iPhone открой страницу в приложении Web MIDI Browser, на Android — в Chrome.', true);
       return;
     }
+    if (connecting) return;
+    connecting = true;
+    message('Подключаюсь к MIDI…');
+    let first = null;
     try {
       midi = await navigator.requestMIDIAccess({ sysex: false });
     } catch (e) {
-      message('Браузер не дал доступ к MIDI (' + (e && e.message || e) + '). Разреши MIDI для этой страницы и нажми «Подключить MIDI» ещё раз.', true);
+      first = e;
+      // Some iOS polyfills reject an options object; retry once without it.
+      try { midi = await navigator.requestMIDIAccess(); } catch (e2) { first = first || e2; midi = null; }
+    }
+    connecting = false;
+    if (!midi) {
+      message('Браузер не дал доступ к MIDI (' + describeError(first) + '). Пришли этот текст целиком.', true);
       return;
     }
     try { midi.onstatechange = fillOutputs; } catch (e) {}
     try { fillOutputs(); message(''); }
     catch (e) { message('MIDI подключён, но список устройств не прочитался (' + (e && e.message || e) + '). Пришли этот текст.', true); }
+  }
+  let connecting = false;
+  function describeError(e) {
+    if (!e) return 'нет подробностей';
+    const parts = [];
+    for (const k of ['name', 'message', 'code', 'type', 'reason']) if (e[k]) parts.push(k + ': ' + e[k]);
+    if (!parts.length) { try { parts.push(JSON.stringify(e)); } catch (x) {} }
+    if (!parts.length || parts[0] === '{}') parts.push(String(e) + ' / ' + Object.prototype.toString.call(e));
+    return parts.join(', ');
   }
   function listOutputs() {
     const res = [], o = midi && midi.outputs;
@@ -792,7 +811,7 @@ Reply with only JSON in this shape:
   }
 
   syncControls(); fillOutputs(); renderBass(); renderDrums(); frame(); initAI();
-  if (navigator.permissions && navigator.requestMIDIAccess) {
+  if (nativeMIDI && navigator.permissions) {
     navigator.permissions.query({ name: 'midi' }).then(p => { if (p.state === 'granted') connect(); }).catch(() => {});
   }
 })();
