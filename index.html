@@ -288,41 +288,63 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   let sel = 0, half = 0, nowStep = -1;
 
   /* ---------- MIDI ---------- */
-  let midi = null;
+  let midi = null, outMap = {};
+  // iOS apps such as Web MIDI Browser inject a polyfill: its port map may not be
+  // iterable, and it may ignore send() timestamps, so both are handled by hand.
+  const nativeMIDI = !!navigator.requestMIDIAccess && /\[native code\]/.test(String(navigator.requestMIDIAccess));
   function message(text, err) { const m = $('msg'); m.textContent = text; m.className = 'msg' + (err ? ' err' : ''); m.hidden = !text; }
   async function connect() {
     if (!navigator.requestMIDIAccess) {
-      message('Этот браузер не поддерживает Web MIDI. На Android открой в Chrome, на iPhone нужен браузер с Web MIDI (см. «Как подключить»).', true);
+      message('Этот браузер не поддерживает Web MIDI. На iPhone открой страницу в приложении Web MIDI Browser, на Android — в Chrome.', true);
       return;
     }
     try {
       midi = await navigator.requestMIDIAccess({ sysex: false });
-      midi.onstatechange = fillOutputs;
-      fillOutputs();
-      message('');
     } catch (e) {
-      message('Доступ к MIDI запрещён (' + (e && e.message || e) + '). Открой страницу отдельным файлом в Chrome и разреши MIDI.', true);
+      message('Браузер не дал доступ к MIDI (' + (e && e.message || e) + '). Разреши MIDI для этой страницы и нажми «Подключить MIDI» ещё раз.', true);
+      return;
     }
+    try { midi.onstatechange = fillOutputs; } catch (e) {}
+    try { fillOutputs(); message(''); }
+    catch (e) { message('MIDI подключён, но список устройств не прочитался (' + (e && e.message || e) + '). Пришли этот текст.', true); }
+  }
+  function listOutputs() {
+    const res = [], o = midi && midi.outputs;
+    if (!o) return res;
+    if (typeof o.forEach === 'function') o.forEach(v => res.push(v));
+    else if (typeof o.values === 'function') {
+      const it = o.values();
+      if (Array.isArray(it)) res.push(...it);
+      else if (it && typeof it.next === 'function') for (let r = it.next(); !r.done; r = it.next()) res.push(r.value);
+    } else if (Array.isArray(o)) res.push(...o);
+    else for (const k in o) if (o[k] && typeof o[k].send === 'function') res.push(o[k]);
+    return res.filter(x => x && typeof x.send === 'function');
   }
   function fillOutputs() {
-    const outs = midi ? [...midi.outputs.values()] : [];
+    const outs = listOutputs();
+    outMap = {};
+    outs.forEach((o, i) => { o._key = String(o.id || o.name || 'out' + i); outMap[o._key] = o; });
     $('midiDot').classList.toggle('on', outs.length > 0);
     $('midiStatus').textContent = midi ? (outs.length ? 'Выходов: ' + outs.length : 'Устройства не найдены — воткни USB') : 'MIDI не подключён';
-    const pick = (cur, re) => outs.some(o => o.id === cur) ? cur : (outs.find(o => re.test(o.name)) || {}).id || '';
+    const pick = (cur, re) => outMap[cur] ? cur : (outs.find(o => re.test(o.name || '')) || {})._key || '';
     S.bass.out = pick(S.bass.out, /TD-?3/i);
     S.drums.out = pick(S.drums.out, /RD-?\d|TR-?\d|drum/i);
+    const esc = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
     for (const [id, cur] of [['bassOut', S.bass.out], ['drumOut', S.drums.out]]) {
       const el = $(id);
-      el.innerHTML = '<option value="">— не выбран —</option>' + outs.map(o => `<option value="${o.id}">${o.name.replace(/</g, '&lt;')}</option>`).join('');
+      el.innerHTML = '<option value="">— не выбран —</option>' + outs.map(o => `<option value="${esc(o._key)}">${esc(o.name || o._key)}</option>`).join('');
       el.value = cur;
     }
     save();
   }
   function send(outId, data, t) {
     if (!midi || !outId) return;
-    const o = midi.outputs.get(outId);
+    const o = outMap[outId];
     if (!o) return;
-    try { t ? o.send(data, t) : o.send(data); } catch (e) {}
+    const now = performance.now();
+    if (!t || t <= now + 1) { try { o.send(data); } catch (e) {} return; }
+    if (nativeMIDI) { try { o.send(data, t); return; } catch (e) {} }
+    setTimeout(() => { try { o.send(data); } catch (e) {} }, t - now);
   }
   const outsUsed = () => [...new Set([S.bass.out, S.drums.out].filter(Boolean))];
 
