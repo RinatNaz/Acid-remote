@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Acid Remote</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one column of hardware-style panels — transport, bass line (TD-3), drum machine. Deliberately single dark theme, like a stage console. */
+:root {
+  color-scheme: dark;
+  --bg: #121317;
+  --panel: #1c1d23;
+  --panel-2: #26272f;
+  --line: #34353f;
+  --fg: #ebe8df;
+  --dim: #8d8b95;
+  --bass: #f4b23c;
+  --drum: #ef5a35;
+  --led: #ff3d2e;
+  --ok: #5fd38a;
+  --ai: #8fb8ff;
+  --display: "Chakra Petch", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--body); font-size: 15px; line-height: 1.45; }
+* { box-sizing: border-box; }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--bass); outline-offset: 2px; }
+
+.app {
+  max-width: 860px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 40px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-family: var(--display); font-weight: 700; font-size: 26px; letter-spacing: .04em; margin: 0; text-transform: uppercase; }
+h1 span { color: var(--bass); }
+h2 { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: .08em; text-transform: uppercase; margin: 0; }
+.status { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: none; }
+.dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.panel.bass { border-top: 3px solid var(--bass); }
+.panel.drums { border-top: 3px solid var(--drum); }
+.panel.ai { border-top: 3px solid var(--ai); }
+textarea {
+  width: 100%; min-height: 76px; resize: vertical; font: inherit; font-size: 16px; color: var(--fg);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px;
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.spread { justify-content: space-between; }
+label.f { display: flex; flex-direction: column; gap: 3px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+select, input[type=number] {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 40px; max-width: 100%;
+}
+select { min-width: 0; }
+.out-sel { flex: 1 1 180px; min-width: 0; }
+.out-sel select { width: 100%; }
+
+.btn {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px; min-height: 40px;
+  font-family: var(--display); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 13px;
+}
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--bass); color: #1a1408; border-color: var(--bass); }
+.btn.on { border-color: var(--bass); color: var(--bass); }
+.btn.big { min-height: 52px; min-width: 96px; font-size: 16px; }
+.btn.play.on { background: var(--ok); color: #0d1f14; border-color: var(--ok); }
+
+.tempo { display: flex; align-items: center; gap: 6px; }
+.tempo output { font-family: var(--mono); font-size: 28px; min-width: 3ch; text-align: center; font-variant-numeric: tabular-nums; }
+.tempo .btn { min-width: 40px; padding: 8px; }
+input[type=range] { accent-color: var(--bass); width: 120px; }
+.check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); }
+
+/* Bass steps */
+.steps { display: grid; grid-template-columns: repeat(16, 1fr); gap: 5px; }
+@media (max-width: 640px) { .steps { grid-template-columns: repeat(8, 1fr); } }
+.step {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 2px 5px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 58px; position: relative;
+}
+.step .n { font-family: var(--mono); font-size: 13px; }
+.step .i { font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.step .flags { display: flex; gap: 3px; font-size: 10px; font-family: var(--display); font-weight: 700; height: 13px; }
+.step .flags .a { color: var(--bass); }
+.step .flags .s { color: #9ec7ff; }
+.step.rest .n { color: var(--dim); }
+.step.sel { border-color: var(--bass); background: #33291a; }
+.step.now::after, .cell.now::after { content: ""; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--led); box-shadow: 0 0 6px var(--led); }
+
+.editor { display: flex; flex-direction: column; gap: 10px; background: var(--panel-2); border-radius: 8px; padding: 12px; }
+.keys { position: relative; height: 110px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+.key { border: 1px solid var(--line); border-radius: 0 0 6px 6px; background: #e9e5d8; color: #2b2a26; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font-family: var(--mono); font-size: 12px; }
+.key.blk { position: absolute; top: 0; height: 62%; background: #17171b; color: var(--dim); border-color: #000; z-index: 2; align-items: flex-end; font-size: 10px; }
+.key.cur { background: var(--bass); color: #1a1408; }
+.key.blk.cur { background: var(--bass); color: #1a1408; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { background: transparent; border: 0; padding: 8px 12px; min-height: 40px; font-family: var(--display); font-weight: 700; font-size: 13px; letter-spacing: .06em; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--bass); color: #1a1408; }
+
+/* Drums */
+.drum-grid { display: flex; flex-direction: column; gap: 4px; }
+.drow { display: grid; grid-template-columns: 72px repeat(var(--cols), 1fr); gap: 4px; align-items: center; }
+.dlabel { display: flex; align-items: center; gap: 4px; }
+.dlabel b { font-family: var(--display); font-size: 14px; width: 26px; }
+.dlabel input { width: 40px; min-height: 30px; padding: 2px 4px; font-family: var(--mono); font-size: 12px; text-align: center; }
+.cell { height: 38px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); position: relative; padding: 0; }
+.cell.beat { background: #2d2e37; }
+.cell.v1 { background: #8a3a24; border-color: var(--drum); }
+.cell.v2 { background: var(--drum); border-color: #ffb199; }
+.hdr .cell { height: auto; border: 0; background: transparent; font-size: 10px; color: var(--dim); text-align: center; font-variant-numeric: tabular-nums; }
+.half-toggle { display: none; }
+@media (max-width: 640px) { .half-toggle { display: flex; } }
+
+.msg { font-size: 13px; color: var(--dim); }
+.msg.err { color: #ffb4a6; }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+summary { font-family: var(--display); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+details p, details li { max-width: 65ch; color: #cfccc3; }
+details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <header>
+    <h1>Acid <span>Remote</span></h1>
+    <div class="row">
+      <div class="status"><i class="dot" id="midiDot"></i><span id="midiStatus">MIDI не подключён</span></div>
+      <button class="btn primary" id="connect">Подключить MIDI</button>
+    </div>
+  </header>
+  <p class="msg" id="msg" hidden></p>
+
+  <section class="panel">
+    <div class="row spread">
+      <div class="row">
+        <button class="btn big play" id="play">▶ Play</button>
+        <button class="btn" id="panic" title="Выключить все звучащие ноты">Panic</button>
+      </div>
+      <div class="tempo">
+        <button class="btn" id="bpmDown" aria-label="Медленнее">−</button>
+        <output id="bpmOut">126</output>
+        <button class="btn" id="bpmUp" aria-label="Быстрее">+</button>
+        <span class="msg">BPM</span>
+      </div>
+    </div>
+    <div class="row">
+      <label class="f">Swing <input type="range" id="swing" min="50" max="75" step="1"></label>
+      <output class="msg" id="swingOut">50%</output>
+      <label class="check"><input type="checkbox" id="clock"> Слать MIDI Clock и Start/Stop</label>
+      <label class="check"><input type="checkbox" id="phoneSound"> Звук в телефоне</label>
+    </div>
+  </section>
+
+  <section class="panel ai">
+    <h2>AI-помощник</h2>
+    <textarea id="aiAsk" rows="3" placeholder="Например: бас как в Da Funk · кислотная линия в стиле Acid Tracks · добавь больше слайдов · барабаны как в Blue Monday"></textarea>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="aiBass" checked> Бас</label>
+      <label class="check"><input type="checkbox" id="aiDrums" checked> Барабаны</label>
+      <button class="btn primary" id="aiGo">Сделать паттерн</button>
+      <button class="btn" id="aiStop" hidden>Стоп</button>
+      <button class="btn" id="aiUndo" hidden>Вернуть как было</button>
+    </div>
+    <p class="msg" id="aiMsg">Опиши словами, что хочешь услышать. AI заменит паттерн, а старый можно вернуть одной кнопкой.</p>
+  </section>
+
+  <section class="panel bass">
+    <div class="row spread">
+      <h2>Bass line · TD-3</h2>
+      <div class="row">
+        <button class="btn" id="rand">Random acid</button>
+        <button class="btn" id="bclear">Clear</button>
+      </div>
+    </div>
+    <div class="row">
+      <label class="f out-sel">Выход<select id="bassOut"></select></label>
+      <label class="f">Канал<select id="bassCh"></select></label>
+      <label class="f">Октава<select id="bassBase"><option value="24">C1</option><option value="36">C2</option><option value="48">C3</option></select></label>
+    </div>
+    <div class="steps" id="steps"></div>
+    <div class="editor">
+      <div class="row spread">
+        <div class="row">
+          <button class="btn" id="prev" aria-label="Предыдущий шаг">◀</button>
+          <strong id="selLabel" style="font-family:var(--display);letter-spacing:.06em">ШАГ 1</strong>
+          <button class="btn" id="next" aria-label="Следующий шаг">▶</button>
+        </div>
+        <label class="check"><input type="checkbox" id="autoAdv" checked> Авто-шаг после ноты</label>
+      </div>
+      <div class="keys" id="keys"></div>
+      <div class="row">
+        <div class="seg" id="octSeg"><button data-o="-1">DOWN</button><button data-o="0">—</button><button data-o="1">UP</button></div>
+        <button class="btn" id="tOn">NOTE</button>
+        <button class="btn" id="tAcc">ACCENT</button>
+        <button class="btn" id="tSlide">SLIDE</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel drums">
+    <div class="row spread">
+      <h2>Drums · RD</h2>
+      <div class="row">
+        <div class="seg half-toggle" id="halfSeg"><button data-h="0">1–8</button><button data-h="1">9–16</button></div>
+        <button class="btn" id="addRow" title="Добавить звук, который дал мод">+ звук</button>
+        <button class="btn" id="delRow" title="Убрать последний добавленный звук">− звук</button>
+        <button class="btn" id="dclear">Clear</button>
+      </div>
+    </div>
+    <div class="row">
+      <label class="f out-sel">Выход<select id="drumOut"></select></label>
+      <label class="f">Канал<select id="drumCh"></select></label>
+      <label class="f">Машина<select id="kit"></select></label>
+    </div>
+    <div class="drum-grid" id="drumGrid"></div>
+    <p class="msg">Тап по клетке: удар → акцент → пусто. Число рядом с инструментом — номер MIDI-ноты, его можно поменять, если у твоей машины другая раскладка. Строка <b>AC</b> — общий акцент, как на 606: всё, что бьёт на этом шаге, звучит с акцентом. «+ звук» добавляет строку для звуков, которые появились после мода.</p>
+  </section>
+
+  <details>
+    <summary>Как подключить</summary>
+    <ul>
+      <li><b>Android:</b> Chrome + кабель USB-OTG. TD-3 и RD подключаются по USB как обычные MIDI-устройства, без драйверов. Для двух машин сразу нужен маленький USB-хаб.</li>
+      <li><b>iPhone:</b> Safari не умеет MIDI из браузера. Нужен браузер с поддержкой Web MIDI из App Store (например, «Web MIDI Browser») и адаптер Lightning/USB-C → USB.</li>
+      <li><b>Компьютер:</b> Chrome или Edge, просто воткнуть USB.</li>
+      <li><b>Звук в телефоне</b> — простая имитация 303 и драм-машины, чтобы слушать паттерн без железа. Это не звук самих машин. На iPhone выключи беззвучный режим, иначе тишина.</li>
+      <li><b>AI-помощник</b> работает, когда страница открыта по ссылке в Claude. В отдельном файле его нет.</li>
+      <li>Если кнопка «Подключить MIDI» пишет, что доступ запрещён, — открой эту страницу как отдельный файл в Chrome, а не внутри другого приложения.</li>
+    </ul>
+    <p><b>TD-3:</b> акцент передаётся силой нажатия (velocity 127), слайд — тем, что следующая нота включается раньше, чем выключается предыдущая. Так TD-3 сам делает глайд. Канал по умолчанию — 1, меняется в SynthTribe.</p>
+    <p><b>Драм-машина:</b> обычно слушает канал 10. Номера нот в пресетах — заводские значения Behringer; если какой-то звук не играет, проверь раскладку в SynthTribe и поправь число.</p>
+    <p>Если включён «MIDI Clock», машины могут играть и свои собственные паттерны в темпе этой страницы.</p>
+  </details>
+</div>
+
+<script>
+(() => {
+  const NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const KITS = {
+    'RD-6 (606)': [['BD',36],['SD',40],['LT',45],['HT',50],['CP',39],['CY',49],['OH',46],['CH',42]],
+    'RD-6 modded (606 + AC)': [['AC',null],['BD',36],['SD',40],['LT',45],['HT',50],['CP',39],['CY',49],['OH',46],['CH',42]],
+    'RD-8 (808)': [['BD',36],['SD',40],['LT',45],['MT',47],['HT',50],['RS',37],['CP',39],['CB',56],['CY',51],['OH',46],['CH',42],['MA',70],['CL',75]],
+    'RD-9 (909)': [['BD',36],['SD',40],['LT',45],['MT',47],['HT',50],['RS',37],['CP',39],['CH',42],['OH',46],['CR',49],['RD',51]],
+    'Roland TR-8S / GM': [['BD',36],['SD',38],['LT',43],['MT',47],['HT',50],['RS',37],['CP',39],['CH',42],['OH',46],['CC',49],['RC',51]]
+  };
+  const STORE = 'acid-remote-v1';
+
+  const blankStep = () => ({ on: 0, p: 0, o: 0, a: 0, s: 0 });
+  const defaultBass = [
+    [1,0,0,1,0],[1,0,1,0,1],[1,0,0,0,0],[0,0,0,0,0],[1,3,0,1,0],[1,0,0,0,1],[1,7,0,0,0],[1,0,1,1,0],
+    [1,0,0,0,0],[0,0,0,0,0],[1,10,-1,0,1],[1,0,0,1,0],[1,3,0,0,1],[1,5,0,0,0],[1,0,1,1,0],[1,7,0,0,1]
+  ].map(([on,p,o,a,s]) => ({ on, p, o, a, s }));
+
+  function defaultDrums(kit) {
+    const pat = {};
+    for (const [l] of KITS[kit]) pat[l] = Array(16).fill(0);
+    const set = (l, idx, v = 1) => { if (pat[l]) idx.forEach(i => pat[l][i] = v); };
+    set('BD', [0,4,8,12]);
+    set('BD', [0], 2);
+    set('CP', [4,12]);
+    set('CH', [2,6,10,14]);
+    set('OH', [14], 2);
+    set('AC', [0, 8], 2);
+    return pat;
+  }
+
+  let S = {
+    bpm: 126, swing: 54, clock: false,
+    bass: { out: '', ch: 1, base: 36, steps: defaultBass },
+    drums: { out: '', ch: 10, kit: 'RD-8 (808)', map: KITS['RD-8 (808)'].map(x => x.slice()), pat: defaultDrums('RD-8 (808)') }
+  };
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+    if (saved && saved.bass && saved.drums && KITS[saved.drums.kit]) S = saved;
+  } catch (e) {}
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify(S)); } catch (e) {} };
+
+  const $ = id => document.getElementById(id);
+  let sel = 0, half = 0, nowStep = -1;
+
+  /* ---------- MIDI ---------- */
+  let midi = null;
+  function message(text, err) { const m = $('msg'); m.textContent = text; m.className = 'msg' + (err ? ' err' : ''); m.hidden = !text; }
+  async function connect() {
+    if (!navigator.requestMIDIAccess) {
+      message('Этот браузер не поддерживает Web MIDI. На Android открой в Chrome, на iPhone нужен браузер с Web MIDI (см. «Как подключить»).', true);
+      return;
+    }
+    try {
+      midi = await navigator.requestMIDIAccess({ sysex: false });
+      midi.onstatechange = fillOutputs;
+      fillOutputs();
+      message('');
+    } catch (e) {
+      message('Доступ к MIDI запрещён (' + (e && e.message || e) + '). Открой страницу отдельным файлом в Chrome и разреши MIDI.', true);
+    }
+  }
+  function fillOutputs() {
+    const outs = midi ? [...midi.outputs.values()] : [];
+    $('midiDot').classList.toggle('on', outs.length > 0);
+    $('midiStatus').textContent = midi ? (outs.length ? 'Выходов: ' + outs.length : 'Устройства не найдены — воткни USB') : 'MIDI не подключён';
+    const pick = (cur, re) => outs.some(o => o.id === cur) ? cur : (outs.find(o => re.test(o.name)) || {}).id || '';
+    S.bass.out = pick(S.bass.out, /TD-?3/i);
+    S.drums.out = pick(S.drums.out, /RD-?\d|TR-?\d|drum/i);
+    for (const [id, cur] of [['bassOut', S.bass.out], ['drumOut', S.drums.out]]) {
+      const el = $(id);
+      el.innerHTML = '<option value="">— не выбран —</option>' + outs.map(o => `<option value="${o.id}">${o.name.replace(/</g, '&lt;')}</option>`).join('');
+      el.value = cur;
+    }
+    save();
+  }
+  function send(outId, data, t) {
+    if (!midi || !outId) return;
+    const o = midi.outputs.get(outId);
+    if (!o) return;
+    try { t ? o.send(data, t) : o.send(data); } catch (e) {}
+  }
+  const outsUsed = () => [...new Set([S.bass.out, S.drums.out].filter(Boolean))];
+
+  /* ---------- Phone sound (Web Audio) ---------- */
+  let ac = null, master = null, noiseBuf = null, bassV = null, lastHz = 110;
+  const phoneOn = () => S.phone !== false;
+  const hz = n => 440 * Math.pow(2, (n - 69) / 12);
+  function ensureAudio() {
+    if (!phoneOn()) return null;
+    try {
+      if (!ac) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        ac = new AC();
+        master = ac.createGain(); master.gain.value = 0.6; master.connect(ac.destination);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        const osc = ac.createOscillator(); osc.type = 'sawtooth';
+        const flt = ac.createBiquadFilter(); flt.type = 'lowpass'; flt.Q.value = 14; flt.frequency.value = 250;
+        const vca = ac.createGain(); vca.gain.value = 0;
+        osc.connect(flt); flt.connect(vca); vca.connect(master); osc.start();
+        bassV = { osc, flt, vca };
+      }
+      if (ac.state === 'suspended') ac.resume();
+    } catch (e) { return null; }
+    return ac;
+  }
+  const at = t => ac.currentTime + Math.max(0, (t - performance.now()) / 1000);
+  function pBassOn(n, acc, t, glide) {
+    if (!phoneOn() || !ac) return;
+    const T = at(t), f = bassV.osc.frequency, c = bassV.flt.frequency, g = bassV.vca.gain;
+    f.cancelScheduledValues(T);
+    if (glide) { f.setValueAtTime(lastHz, T); f.exponentialRampToValueAtTime(hz(n), T + 0.06); }
+    else {
+      f.setValueAtTime(hz(n), T);
+      c.cancelScheduledValues(T);
+      c.setValueAtTime(acc ? 2800 : 1500, T);
+      c.exponentialRampToValueAtTime(220, T + (acc ? 0.18 : 0.3));
+      g.cancelScheduledValues(T);
+      g.setTargetAtTime(acc ? 0.5 : 0.3, T, 0.003);
+    }
+    lastHz = hz(n);
+  }
+  function pBassOff(t) {
+    if (!ac) return;
+    bassV.vca.gain.setTargetAtTime(0, at(t), 0.015);
+  }
+  function pDrum(l, n, acc, t) {
+    if (!phoneOn() || !ac) return;
+    const T = at(t), v = acc ? 1 : 0.6;
+    const voice = (src, peak, dec, filt, off = 0) => {
+      const g = ac.createGain(), T0 = T + off;
+      g.gain.setValueAtTime(peak * v, T0);
+      g.gain.exponentialRampToValueAtTime(0.001, T0 + dec);
+      let s = src;
+      if (filt) { s.connect(filt); s = filt; }
+      s.connect(g); g.connect(master);
+      src.start(T0); src.stop(T0 + dec + 0.05);
+    };
+    const osc = (f0, f1, dec, type) => {
+      const o = ac.createOscillator(); o.type = type || 'sine';
+      o.frequency.setValueAtTime(f0, T);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, T + dec * 0.6);
+      return o;
+    };
+    const noise = () => { const b = ac.createBufferSource(); b.buffer = noiseBuf; b.loop = true; return b; };
+    const filter = (type, f, q) => { const x = ac.createBiquadFilter(); x.type = type; x.frequency.value = f; if (q) x.Q.value = q; return x; };
+    switch (l) {
+      case 'AC': break;
+      case 'BD': voice(osc(150, 45, 0.45), 1, 0.45); break;
+      case 'SD': voice(osc(220, 180, 0.12, 'triangle'), 0.5, 0.12); voice(noise(), 0.6, 0.2, filter('highpass', 1500)); break;
+      case 'LT': voice(osc(110, 85, 0.35), 0.8, 0.35); break;
+      case 'MT': voice(osc(160, 125, 0.3), 0.8, 0.3); break;
+      case 'HT': voice(osc(220, 175, 0.25), 0.8, 0.25); break;
+      case 'RS': case 'CL': voice(osc(1700, 1700, 0.04, 'square'), 0.3, 0.04, filter('bandpass', 1700, 4)); break;
+      case 'CP':
+        for (const off of [0, 0.011, 0.022]) voice(noise(), 0.5, 0.02, filter('bandpass', 1200, 1.5), off);
+        voice(noise(), 0.5, 0.25, filter('bandpass', 1200, 1.5), 0.033);
+        break;
+      case 'CB':
+        voice(osc(540, 540, 0.3, 'square'), 0.2, 0.3, filter('bandpass', 800, 3));
+        voice(osc(800, 800, 0.3, 'square'), 0.2, 0.3, filter('bandpass', 800, 3));
+        break;
+      case 'CH': voice(noise(), 0.4, 0.05, filter('highpass', 7000)); break;
+      case 'OH': voice(noise(), 0.4, 0.35, filter('highpass', 7000)); break;
+      case 'CY': case 'CR': case 'CC': voice(noise(), 0.35, 1.0, filter('highpass', 5000)); break;
+      case 'RD': case 'RC': voice(noise(), 0.25, 0.7, filter('bandpass', 8000, 2)); break;
+      case 'MA': voice(noise(), 0.3, 0.06, filter('highpass', 9000)); break;
+      default: voice(osc(hz(n), hz(n), 0.2, 'triangle'), 0.5, 0.2);
+    }
+  }
+
+  /* ---------- Sequencer ---------- */
+  let playing = false, timer = null, nextT = 0, step = 0, held = null;
+  const vis = [];
+  const stepLen = () => 60000 / S.bpm / 4;
+  const midiNote = st => S.bass.base + st.p + 12 * st.o;
+
+  function scheduleStep(i, t, dur) {
+    const bc = S.bass.ch - 1;
+    const st = S.bass.steps[i];
+    const nx = S.bass.steps[(i + 1) % 16];
+    if (st.on) {
+      const n = midiNote(st);
+      const vel = st.a ? 127 : 80;
+      if (held === null || held !== n) {
+        send(S.bass.out, [0x90 | bc, n, vel], t);
+        pBassOn(n, st.a, t, held !== null);
+        if (held !== null) send(S.bass.out, [0x80 | bc, held, 0], t + 2);
+      }
+      if (st.s && nx.on) held = n;
+      else {
+        send(S.bass.out, [0x80 | bc, n, 0], t + dur * 0.55);
+        pBassOff(t + dur * 0.55);
+        held = null;
+      }
+    } else if (held !== null) {
+      send(S.bass.out, [0x80 | bc, held, 0], t);
+      pBassOff(t);
+      held = null;
+    }
+    const dc = S.drums.ch - 1;
+    const acc = (S.drums.pat.AC || [])[i];
+    for (const [l, n] of S.drums.map) {
+      const v = (S.drums.pat[l] || [])[i];
+      if (!v || n === null) continue;
+      send(S.drums.out, [0x90 | dc, n, v === 2 || acc ? 127 : 96], t);
+      pDrum(l, n, v === 2 || !!acc, t);
+      send(S.drums.out, [0x80 | dc, n, 0], t + 40);
+    }
+    if (S.clock) for (const o of outsUsed()) for (let k = 0; k < 6; k++) send(o, [0xF8], t + k * dur / 6);
+    vis.push({ i, t });
+  }
+  function tick() {
+    const horizon = performance.now() + 120;
+    while (nextT < horizon) {
+      const pair = stepLen() * 2;
+      const dur = step % 2 === 0 ? pair * S.swing / 100 : pair * (1 - S.swing / 100);
+      scheduleStep(step, nextT, dur);
+      nextT += dur;
+      step = (step + 1) % 16;
+    }
+  }
+  function allOff(t) {
+    send(S.bass.out, [0xB0 | (S.bass.ch - 1), 123, 0], t);
+    send(S.drums.out, [0xB0 | (S.drums.ch - 1), 123, 0], t);
+    for (let n = 0; n < 128; n++) send(S.bass.out, [0x80 | (S.bass.ch - 1), n, 0], t);
+  }
+  function play() {
+    if (playing) return stop();
+    ensureAudio();
+    playing = true; step = 0; held = null; vis.length = 0;
+    nextT = performance.now() + 60;
+    if (S.clock) outsUsed().forEach(o => send(o, [0xFA], nextT - 1));
+    tick();
+    timer = setInterval(tick, 20);
+    $('play').classList.add('on'); $('play').textContent = '■ Stop';
+  }
+  function stop() {
+    playing = false; clearInterval(timer); vis.length = 0;
+    const t = performance.now() + 150;
+    if (S.clock) outsUsed().forEach(o => send(o, [0xFC], t));
+    allOff(t); held = null; pBassOff(performance.now());
+    $('play').classList.remove('on'); $('play').textContent = '▶ Play';
+    setNow(-1);
+  }
+  function frame() {
+    const now = performance.now();
+    let last = null;
+    while (vis.length && vis[0].t <= now) last = vis.shift();
+    if (last && playing) setNow(last.i);
+    requestAnimationFrame(frame);
+  }
+  function setNow(i) {
+    if (i === nowStep) return;
+    nowStep = i;
+    document.querySelectorAll('.now').forEach(e => e.classList.remove('now'));
+    if (i < 0) return;
+    document.querySelectorAll(`[data-step="${i}"]`).forEach(e => e.classList.add('now'));
+  }
+  function audition(st) {
+    if (playing || !st.on) return;
+    const bc = S.bass.ch - 1, n = midiNote(st), t = performance.now();
+    send(S.bass.out, [0x90 | bc, n, st.a ? 127 : 80]);
+    send(S.bass.out, [0x80 | bc, n, 0], t + 200);
+    ensureAudio(); pBassOn(n, st.a, t, false); pBassOff(t + 200);
+  }
+
+  /* ---------- Bass UI ---------- */
+  const noteName = m => NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+  function renderSteps() {
+    $('steps').innerHTML = S.bass.steps.map((st, i) => `
+      <button class="step${st.on ? '' : ' rest'}${i === sel ? ' sel' : ''}${i === nowStep ? ' now' : ''}" data-step="${i}" data-sel="${i}">
+        <span class="i">${i + 1}</span>
+        <span class="n">${st.on ? noteName(midiNote(st)) : '·'}</span>
+        <span class="flags">${st.on && st.a ? '<span class="a">A</span>' : ''}${st.on && st.s ? '<span class="s">S</span>' : ''}</span>
+      </button>`).join('');
+  }
+  function renderEditor() {
+    const st = S.bass.steps[sel];
+    $('selLabel').textContent = 'ШАГ ' + (sel + 1);
+    const whites = [0,2,4,5,7,9,11,12], blacks = [[1,0],[3,1],[6,3],[8,4],[10,5]];
+    let h = whites.map(p => `<button class="key${st.on && st.p === p ? ' cur' : ''}" data-p="${p}">${p === 12 ? 'C↑' : NAMES[p]}</button>`).join('');
+    h += blacks.map(([p, after]) => `<button class="key blk${st.on && st.p === p ? ' cur' : ''}" data-p="${p}" style="left:calc(${(after + 1) / 8 * 100}% - 5.5%);width:11%">${NAMES[p]}</button>`).join('');
+    $('keys').innerHTML = h;
+    document.querySelectorAll('#octSeg button').forEach(b => b.classList.toggle('on', +b.dataset.o === st.o));
+    $('tOn').classList.toggle('on', !!st.on); $('tOn').textContent = st.on ? 'NOTE' : 'REST';
+    $('tAcc').classList.toggle('on', !!st.a);
+    $('tSlide').classList.toggle('on', !!st.s);
+  }
+  const renderBass = () => { renderSteps(); renderEditor(); };
+  function editStep(fn, listen) {
+    const st = S.bass.steps[sel];
+    fn(st); save(); renderBass();
+    if (listen) audition(st);
+  }
+
+  $('steps').addEventListener('click', e => {
+    const b = e.target.closest('[data-sel]'); if (!b) return;
+    sel = +b.dataset.sel; renderBass(); audition(S.bass.steps[sel]);
+  });
+  $('keys').addEventListener('click', e => {
+    const k = e.target.closest('[data-p]'); if (!k) return;
+    editStep(st => { st.p = +k.dataset.p; st.on = 1; }, true);
+    if ($('autoAdv').checked) { sel = (sel + 1) % 16; renderBass(); }
+  });
+  $('octSeg').addEventListener('click', e => {
+    const b = e.target.closest('[data-o]'); if (!b) return;
+    editStep(st => { st.o = +b.dataset.o; st.on = 1; }, true);
+  });
+  $('tOn').onclick = () => editStep(st => { st.on = st.on ? 0 : 1; });
+  $('tAcc').onclick = () => editStep(st => { st.a = st.a ? 0 : 1; });
+  $('tSlide').onclick = () => editStep(st => { st.s = st.s ? 0 : 1; });
+  $('prev').onclick = () => { sel = (sel + 15) % 16; renderBass(); };
+  $('next').onclick = () => { sel = (sel + 1) % 16; renderBass(); };
+  $('bclear').onclick = () => { S.bass.steps = Array.from({ length: 16 }, blankStep); save(); renderBass(); };
+  $('rand').onclick = () => {
+    const scale = [0, 3, 5, 7, 10, 12];
+    S.bass.steps = Array.from({ length: 16 }, (_, i) => {
+      const r = Math.random();
+      return {
+        on: i === 0 || Math.random() < 0.8 ? 1 : 0,
+        p: i === 0 ? 0 : scale[Math.floor(Math.random() * scale.length)],
+        o: r < 0.15 ? -1 : r > 0.82 ? 1 : 0,
+        a: Math.random() < 0.3 ? 1 : 0,
+        s: Math.random() < 0.25 ? 1 : 0
+      };
+    });
+    save(); renderBass();
+  };
+
+  /* ---------- Drum UI ---------- */
+  const narrow = matchMedia('(max-width: 640px)');
+  function renderDrums() {
+    const idx = narrow.matches ? Array.from({ length: 8 }, (_, k) => k + half * 8) : Array.from({ length: 16 }, (_, k) => k);
+    const g = $('drumGrid');
+    g.style.setProperty('--cols', idx.length);
+    let h = `<div class="drow hdr"><span></span>${idx.map(i => `<span class="cell">${i + 1}</span>`).join('')}</div>`;
+    S.drums.map.forEach(([l, n], r) => {
+      const pat = S.drums.pat[l] || (S.drums.pat[l] = Array(16).fill(0));
+      h += `<div class="drow"><span class="dlabel"><b>${l}</b>${n === null ? '<span class="msg">акц.</span>' : `<input type="number" min="0" max="127" id="dn-${l}" data-r="${r}" value="${n}" aria-label="MIDI-нота ${l}">`}</span>` +
+        idx.map(i => `<button class="cell${i % 4 === 0 ? ' beat' : ''}${pat[i] ? ' v' + pat[i] : ''}${i === nowStep ? ' now' : ''}" data-step="${i}" data-l="${l}" data-i="${i}" aria-label="${l} шаг ${i + 1}"></button>`).join('') + '</div>';
+    });
+    g.innerHTML = h;
+    document.querySelectorAll('#halfSeg button').forEach(b => b.classList.toggle('on', +b.dataset.h === half));
+  }
+  $('drumGrid').addEventListener('click', e => {
+    const c = e.target.closest('[data-l]'); if (!c) return;
+    const p = S.drums.pat[c.dataset.l], i = +c.dataset.i;
+    p[i] = c.dataset.l === 'AC' ? (p[i] ? 0 : 2) : (p[i] + 1) % 3;
+    c.className = `cell${i % 4 === 0 ? ' beat' : ''}${p[i] ? ' v' + p[i] : ''}${i === nowStep ? ' now' : ''}`;
+    save();
+    const n = S.drums.map.find(x => x[0] === c.dataset.l)[1];
+    if (!playing && p[i] && n !== null) {
+      const dc = S.drums.ch - 1;
+      ensureAudio(); pDrum(c.dataset.l, n, p[i] === 2, performance.now());
+      send(S.drums.out, [0x90 | dc, n, p[i] === 2 ? 127 : 96]);
+      send(S.drums.out, [0x80 | dc, n, 0], performance.now() + 40);
+    }
+  });
+  $('drumGrid').addEventListener('change', e => {
+    const inp = e.target.closest('input[data-r]'); if (!inp) return;
+    const v = Math.max(0, Math.min(127, parseInt(inp.value, 10) || 0));
+    inp.value = v; S.drums.map[+inp.dataset.r][1] = v; save();
+  });
+  $('halfSeg').addEventListener('click', e => {
+    const b = e.target.closest('[data-h]'); if (!b) return;
+    half = +b.dataset.h; renderDrums();
+  });
+  narrow.addEventListener('change', renderDrums);
+  $('addRow').onclick = () => {
+    let k = 1;
+    while (S.drums.map.some(x => x[0] === 'X' + k)) k++;
+    S.drums.map.push(['X' + k, 60]);
+    S.drums.pat['X' + k] = Array(16).fill(0);
+    save(); renderDrums();
+  };
+  $('delRow').onclick = () => {
+    const r = S.drums.map.map(x => x[0]).filter(l => /^X\d+$/.test(l)).pop();
+    if (!r) return;
+    S.drums.map = S.drums.map.filter(x => x[0] !== r);
+    delete S.drums.pat[r];
+    save(); renderDrums();
+  };
+  $('dclear').onclick = () => { for (const l in S.drums.pat) S.drums.pat[l] = Array(16).fill(0); save(); renderDrums(); };
+
+  /* ---------- Settings ---------- */
+  const chOpts = Array.from({ length: 16 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+  $('bassCh').innerHTML = chOpts; $('drumCh').innerHTML = chOpts;
+  $('kit').innerHTML = Object.keys(KITS).map(k => `<option>${k}</option>`).join('');
+  function syncControls() {
+    $('bassCh').value = S.bass.ch; $('drumCh').value = S.drums.ch;
+    $('bassBase').value = S.bass.base; $('kit').value = S.drums.kit;
+    $('bpmOut').textContent = S.bpm; $('swing').value = S.swing; $('swingOut').textContent = S.swing + '%';
+    $('clock').checked = !!S.clock;
+    $('phoneSound').checked = phoneOn();
+  }
+  $('phoneSound').onchange = e => {
+    S.phone = e.target.checked; save();
+    if (S.phone) ensureAudio(); else if (ac) bassV.vca.gain.setTargetAtTime(0, ac.currentTime, 0.01);
+  };
+  $('bassOut').onchange = e => { S.bass.out = e.target.value; save(); };
+  $('drumOut').onchange = e => { S.drums.out = e.target.value; save(); };
+  $('bassCh').onchange = e => { allOff(); S.bass.ch = +e.target.value; save(); };
+  $('drumCh').onchange = e => { S.drums.ch = +e.target.value; save(); };
+  $('bassBase').onchange = e => { allOff(); S.bass.base = +e.target.value; save(); renderBass(); };
+  $('kit').onchange = e => {
+    const k = e.target.value, old = S.drums.pat;
+    S.drums.kit = k; S.drums.map = KITS[k].map(x => x.slice());
+    S.drums.pat = {};
+    for (const [l] of S.drums.map) S.drums.pat[l] = old[l] ? old[l].slice() : Array(16).fill(0);
+    save(); renderDrums();
+  };
+  const setBpm = v => { S.bpm = Math.max(40, Math.min(240, v)); $('bpmOut').textContent = S.bpm; save(); };
+  let hold = null;
+  for (const [id, d] of [['bpmDown', -1], ['bpmUp', 1]]) {
+    const b = $(id);
+    b.addEventListener('pointerdown', () => { setBpm(S.bpm + d); hold = setTimeout(function rep() { setBpm(S.bpm + d); hold = setTimeout(rep, 70); }, 400); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => clearTimeout(hold)));
+  }
+  $('swing').oninput = e => { S.swing = +e.target.value; $('swingOut').textContent = S.swing + '%'; save(); };
+  $('clock').onchange = e => { S.clock = e.target.checked; save(); };
+  $('play').onclick = play;
+  $('panic').onclick = () => { allOff(); held = null; };
+  $('connect').onclick = connect;
+  document.addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|SELECT/.test(e.target.tagName)) { e.preventDefault(); play(); } });
+
+  /* ---------- AI helper ---------- */
+  let aiCtl = null, undo = null;
+  function aiState(text, err) { const m = $('aiMsg'); m.textContent = text; m.className = 'msg' + (err ? ' err' : ''); }
+  const bassText = () => S.bass.steps.map(st => st.on ? `${st.p + 12 * st.o}${st.a ? 'A' : ''}${st.s ? 'S' : ''}` : '-').join(' ');
+  const drumsText = () => S.drums.map.map(([l]) => l + ': ' + (S.drums.pat[l] || []).map(v => v === 2 ? 'X' : v ? 'x' : '.').join('')).join('\n');
+  function buildPrompt(req, doBass, doDrums) {
+    const labels = S.drums.map.map(x => x[0]);
+    const which = doBass && doDrums ? 'both "bass" and "drums"' : doBass ? 'only "bass" (omit "drums")' : 'only "drums" (omit "bass")';
+    return `You program a one-bar, 16-step pattern for a Behringer TD-3 (TB-303 clone) bass line and a ${S.drums.kit} drum machine.
+Request from the musician (may be in Russian): """${req}"""
+
+Current pattern (change it if the request asks for an edit rather than something new):
+Tempo ${S.bpm} BPM, swing ${S.swing}%
+Bass, 16 steps (number = semitones from C, A = accent, S = slide into the next note, - = rest): ${bassText()}
+Drums (x = hit, X = accented hit, . = rest):
+${drumsText()}
+
+Rules:
+- Exactly 16 sixteenth-note steps.
+- Bass "n" is an integer from -12 to 24, semitones relative to C; transpose any key to fit. "s":1 glides into the next step's note, "a":1 is an accent.
+- Drum keys may only be these instrument names: ${labels.join(', ')}. Each value is a 16-character string of x, X and dots.${labels.includes('AC') ? ' AC is a global accent row: any character other than a dot accents every hit on that step.' : ''}
+- If the musician names a known track, write a short simplified riff in its spirit that fits 16 steps; if you are unsure of the original, write one in that style and say so.
+- Fill ${which}.
+Reply with only JSON in this shape:
+{"bpm":125,"swing":54,"bass":[{"on":1,"n":0,"a":1,"s":0}, ...16 items],"drums":{"BD":"x...x...x...x...", ...},"comment":"one or two short sentences in Russian about what you made"}`;
+  }
+  function applyAI(r, doBass, doDrums) {
+    undo = JSON.stringify({ bpm: S.bpm, swing: S.swing, steps: S.bass.steps, pat: S.drums.pat });
+    if (doBass && Array.isArray(r.bass) && r.bass.length) {
+      S.bass.steps = Array.from({ length: 16 }, (_, i) => {
+        const x = r.bass[i] || {};
+        const n = Math.max(-12, Math.min(24, Math.round(+x.n || 0)));
+        const o = n < 0 ? -1 : n > 12 ? 1 : 0;
+        return { on: x.on ? 1 : 0, p: n - 12 * o, o, a: x.a ? 1 : 0, s: x.s ? 1 : 0 };
+      });
+    }
+    if (doDrums && r.drums && typeof r.drums === 'object') {
+      for (const [l] of S.drums.map) {
+        const s = String(r.drums[l] || '').replace(/[\s|]/g, '');
+        S.drums.pat[l] = Array.from({ length: 16 }, (_, i) => {
+          const ch = s[i] || '.';
+          if (l === 'AC') return ch === '.' || ch === '-' ? 0 : 2;
+          return ch === 'X' ? 2 : ch === 'x' || ch === 'o' ? 1 : 0;
+        });
+      }
+    }
+    if (+r.bpm >= 40 && +r.bpm <= 240) S.bpm = Math.round(+r.bpm);
+    if (+r.swing >= 50 && +r.swing <= 75) S.swing = Math.round(+r.swing);
+    save(); syncControls(); renderBass(); renderDrums();
+    $('aiUndo').hidden = false;
+  }
+  $('aiUndo').onclick = () => {
+    if (!undo) return;
+    const u = JSON.parse(undo);
+    S.bpm = u.bpm; S.swing = u.swing; S.bass.steps = u.steps; S.drums.pat = u.pat;
+    undo = null; $('aiUndo').hidden = true;
+    save(); syncControls(); renderBass(); renderDrums();
+    aiState('Вернул прежний паттерн.');
+  };
+  $('aiStop').onclick = () => aiCtl && aiCtl.abort();
+  async function initAI() {
+    const sample = window.claude && window.claude.use ? await window.claude.use('sample').catch(() => null) : null;
+    if (!sample) {
+      $('aiGo').disabled = true;
+      aiState('AI-помощник работает, когда страница открыта по ссылке в Claude. В отдельном файле его нет.');
+      return;
+    }
+    $('aiGo').onclick = async () => {
+      const req = $('aiAsk').value.trim();
+      const doBass = $('aiBass').checked, doDrums = $('aiDrums').checked;
+      if (!req) { aiState('Напиши, что сделать: например, «бас как в Da Funk».', true); return; }
+      if (!doBass && !doDrums) { aiState('Отметь бас, барабаны или оба.', true); return; }
+      aiCtl = new AbortController();
+      $('aiGo').disabled = true; $('aiStop').hidden = false;
+      aiState('Думаю… обычно 10–40 секунд.');
+      try {
+        const r = await sample.json(buildPrompt(req, doBass, doDrums), { signal: aiCtl.signal, cache: false });
+        if (!r || typeof r !== 'object') throw { code: 'invalid_json' };
+        applyAI(r, doBass, doDrums);
+        aiState(r.comment ? String(r.comment) : 'Готово. Жми Play.');
+      } catch (e) {
+        const code = e && e.code;
+        const copy = {
+          cancelled: 'Остановлено.',
+          not_granted: 'Доступ к Claude для этой страницы не разрешён.',
+          sampling_disabled: 'Claude недоступен для этого аккаунта.',
+          rate_limited: 'Слишком много запросов. Подожди минуту и попробуй снова.',
+          invalid_json: 'AI ответил не по формату. Нажми ещё раз.',
+          refused: 'AI не стал это делать. Попробуй сформулировать иначе.',
+          session_expired: 'Нужно заново войти в Claude.'
+        }[code] || 'Не получилось. Попробуй ещё раз.';
+        aiState(copy, code !== 'cancelled');
+        if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(code)) { $('aiStop').hidden = true; return; }
+      }
+      $('aiGo').disabled = false; $('aiStop').hidden = true;
+    };
+  }
+
+  syncControls(); fillOutputs(); renderBass(); renderDrums(); frame(); initAI();
+  if (navigator.permissions && navigator.requestMIDIAccess) {
+    navigator.permissions.query({ name: 'midi' }).then(p => { if (p.state === 'granted') connect(); }).catch(() => {});
+  }
+})();
+</script>
+
+</html>
