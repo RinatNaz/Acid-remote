@@ -53,6 +53,7 @@ textarea {
   width: 100%; min-height: 76px; resize: vertical; font: inherit; font-size: 16px; color: var(--fg);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px;
 }
+.col { display: flex; flex-direction: column; gap: 10px; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .spread { justify-content: space-between; }
@@ -162,16 +163,22 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   </section>
 
   <section class="panel ai">
-    <h2>AI-помощник</h2>
-    <textarea id="aiAsk" rows="3" placeholder="Например: бас как в Da Funk · кислотная линия в стиле Acid Tracks · добавь больше слайдов · барабаны как в Blue Monday"></textarea>
+    <h2>Помощник</h2>
     <div class="row">
-      <label class="check"><input type="checkbox" id="aiBass" checked> Бас</label>
-      <label class="check"><input type="checkbox" id="aiDrums" checked> Барабаны</label>
-      <button class="btn primary" id="aiGo">Сделать паттерн</button>
-      <button class="btn" id="aiStop" hidden>Стоп</button>
+      <label class="f out-sel">Готовый стиль<select id="preset"></select></label>
+      <button class="btn primary" id="presetGo">Загрузить</button>
       <button class="btn" id="aiUndo" hidden>Вернуть как было</button>
     </div>
-    <p class="msg" id="aiMsg">Опиши словами, что хочешь услышать. AI заменит паттерн, а старый можно вернуть одной кнопкой.</p>
+    <div class="col" id="aiBox" hidden>
+      <textarea id="aiAsk" rows="3" placeholder="Или опиши словами: бас как в Da Funk · медленно и мрачно, как Blade Runner · добавь больше слайдов"></textarea>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="aiBass" checked> Бас</label>
+        <label class="check"><input type="checkbox" id="aiDrums" checked> Барабаны</label>
+        <button class="btn primary" id="aiGo">Сделать паттерн AI</button>
+        <button class="btn" id="aiStop" hidden>Стоп</button>
+      </div>
+    </div>
+    <p class="msg" id="aiMsg">Выбери стиль, нажми «Загрузить», потом Play. Старый паттерн можно вернуть кнопкой.</p>
   </section>
 
   <section class="panel bass">
@@ -212,6 +219,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       <h2>Drums · RD</h2>
       <div class="row">
         <div class="seg half-toggle" id="halfSeg"><button data-h="0">1–8</button><button data-h="1">9–16</button></div>
+        <button class="btn" id="drand">Random</button>
         <button class="btn" id="addRow" title="Добавить звук, который дал мод">+ звук</button>
         <button class="btn" id="delRow" title="Убрать последний добавленный звук">− звук</button>
         <button class="btn" id="dclear">Clear</button>
@@ -710,7 +718,75 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   $('play').onclick = play;
   $('panic').onclick = () => { allOff(); held = null; };
   $('connect').onclick = connect;
-  document.addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|SELECT/.test(e.target.tagName)) { e.preventDefault(); play(); } });
+  document.addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(e.target.tagName) && !e.target.isContentEditable) { e.preventDefault(); play(); } });
+
+  /* ---------- Style presets (no AI needed) ---------- */
+  // Bass tokens: semitones from C, A = accent, S = slide, - = rest.
+  const PRESETS = [
+    { name: 'Blade Runner — медленно и мрачно', bpm: 72, swing: 50,
+      bass: '0AS 12S 0 - - - 3S 5 - - 7AS 10S 7 - 3 -',
+      drums: { BD: 'x.......x.......', SD: '....x.......x...', OH: '..............x.', CY: 'X...............' } },
+    { name: 'Acid Tracks — чикагский эсид', bpm: 120, swing: 52,
+      bass: '0A 0 12S 0 0 3A 0 12 0 0A 10S 0 3 0 12AS 7',
+      drums: { BD: 'x...x...x...x...', CP: '....x.......x...', CH: '..x...x...x...x.' } },
+    { name: 'Эсид-техно на 909', bpm: 135, swing: 50,
+      bass: '0 0S 12 0 - 0A 3S 5 0 0 12A 0 7S 10 0 -',
+      drums: { BD: 'x...x...x...x...', CP: '....x.......x...', OH: '..x...x...x...x.', RS: '...x......x....x' } },
+    { name: 'Френч-хаус в духе Da Funk', bpm: 111, swing: 56,
+      bass: '0A - 0 12 - 10 0 - 7S 5 - 3 0A - 12S 10',
+      drums: { BD: 'x...x...x...x...', SD: '....x.......x...', CH: 'x.x.x.x.x.x.x.x.' } },
+    { name: 'Электро на 808', bpm: 128, swing: 50,
+      bass: '0A - - 0 - - 3 - 5A - - 5 - 3 - -',
+      drums: { BD: 'x.....x...x.....', SD: '....x.......x...', CP: '....X.......X...', CH: 'x.xxx.xxx.xxx.xx', CB: '..x.....x.x.....' } },
+    { name: 'Детройт-техно', bpm: 128, swing: 50,
+      bass: '0 - 7 - 0 - 10S 12 0 - 7 - 3 5 - 10',
+      drums: { BD: 'x...x...x...x...', CP: '....x.......x...', CH: '..x...x...x...x.', RS: '..x..x....x..x..' } },
+    { name: 'Транс — бас на офф-бит', bpm: 138, swing: 50,
+      bass: '- - 0 0A - - 0 0A - - 0 0A - - 3 3A',
+      drums: { BD: 'x...x...x...x...', CP: '....x.......x...', OH: '..x...x...x...x.' } },
+    { name: 'Итало-диско — октавный бас', bpm: 118, swing: 50,
+      bass: '0 12 0 12 0 12 0 12 5 17 5 17 7 19 7 19',
+      drums: { BD: 'x...x...x...x...', SD: '....x.......x...', CH: 'x.x.x.x.x.x.x.x.' } },
+    { name: 'Хип-хоп, бум-бэп', bpm: 90, swing: 62,
+      bass: '0A - - - - - - 0 - - 3 - - - - -',
+      drums: { BD: 'x......x..x.....', SD: '....x.......x...', CH: 'x.x.x.x.x.x.x.x.' } },
+    { name: 'Даб-техно', bpm: 120, swing: 50,
+      bass: '0 - - 0 - - 0 - - 0 - - 3 - - -',
+      drums: { BD: 'x...x...x...x...', CH: '..x...x...x...x.', RS: '...x......x.....' } }
+  ];
+  const ALIASES = { CY: ['CR', 'CC', 'RC', 'RD'], RS: ['CL', 'SD'], CP: ['SD'], SD: ['CP'], CB: ['MA', 'CL'], LT: ['MT'] };
+  function presetToResult(pr) {
+    const bass = pr.bass.trim().split(/\s+/).map(tok => {
+      if (tok === '-') return { on: 0, n: 0, a: 0, s: 0 };
+      return { on: 1, n: parseInt(tok, 10) || 0, a: /A/.test(tok) ? 1 : 0, s: /S/.test(tok) ? 1 : 0 };
+    });
+    const labels = S.drums.map.map(x => x[0]), drums = {};
+    for (const [l, pat] of Object.entries(pr.drums)) {
+      const target = labels.includes(l) ? l : (ALIASES[l] || []).find(a => labels.includes(a) && !drums[a]);
+      if (target && !drums[target]) drums[target] = pat;
+    }
+    return { bpm: pr.bpm, swing: pr.swing, bass, drums };
+  }
+  $('preset').innerHTML = PRESETS.map((pr, i) => `<option value="${i}">${pr.name}</option>`).join('');
+  $('presetGo').onclick = () => {
+    const pr = PRESETS[+$('preset').value];
+    applyAI(presetToResult(pr), true, true);
+    aiState('Загружено: ' + pr.name + '. Жми Play.');
+  };
+  $('drand').onclick = () => {
+    const rnd = p => Math.random() < p;
+    for (const [l] of S.drums.map) {
+      S.drums.pat[l] = Array.from({ length: 16 }, (_, i) => {
+        if (l === 'BD') return i % 8 === 0 ? 2 : i % 4 === 0 ? (rnd(0.85) ? 1 : 0) : rnd(0.12) ? 1 : 0;
+        if (l === 'SD' || l === 'CP') return i % 8 === 4 ? 1 : rnd(0.06) ? 1 : 0;
+        if (l === 'CH') return i % 4 === 2 ? 1 : rnd(0.35) ? 1 : 0;
+        if (l === 'OH') return i % 4 === 2 && rnd(0.3) ? 1 : 0;
+        if (l === 'AC') return i % 4 === 0 && rnd(0.3) ? 2 : 0;
+        return rnd(0.08) ? 1 : 0;
+      });
+    }
+    save(); renderDrums();
+  };
 
   /* ---------- AI helper ---------- */
   let aiCtl = null, undo = null;
@@ -774,11 +850,9 @@ Reply with only JSON in this shape:
   $('aiStop').onclick = () => aiCtl && aiCtl.abort();
   async function initAI() {
     const sample = window.claude && window.claude.use ? await window.claude.use('sample').catch(() => null) : null;
-    if (!sample) {
-      $('aiGo').disabled = true;
-      aiState('AI-помощник работает, когда страница открыта по ссылке в Claude. В отдельном файле его нет.');
-      return;
-    }
+    if (!sample) return;
+    $('aiBox').hidden = false;
+    aiState('Выбери готовый стиль или опиши словами, что хочешь услышать.');
     $('aiGo').onclick = async () => {
       const req = $('aiAsk').value.trim();
       const doBass = $('aiBass').checked, doDrums = $('aiDrums').checked;
