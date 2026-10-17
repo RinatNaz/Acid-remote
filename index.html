@@ -192,6 +192,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     <div class="row">
       <label class="f out-sel">Выход<select id="bassOut"></select></label>
       <label class="f">Канал<select id="bassCh"></select></label>
+      <button class="btn" id="testNote">Тест ноты</button>
       <label class="f">Октава<select id="bassBase"><option value="24">C1</option><option value="36">C2</option><option value="48">C3</option></select></label>
     </div>
     <div class="steps" id="steps"></div>
@@ -300,6 +301,10 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   // iOS apps such as Web MIDI Browser inject a polyfill: its port map may not be
   // iterable, and it may ignore send() timestamps, so both are handled by hand.
   const nativeMIDI = !!navigator.requestMIDIAccess && /\[native code\]/.test(String(navigator.requestMIDIAccess));
+  // Only Chrome-style native ports honour send() timestamps. iOS bridges may
+  // look native yet fire at once, which would cut every note to nothing.
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const stampOK = o => !isIOS && typeof window.MIDIOutput === 'function' && o instanceof window.MIDIOutput;
   function message(text, err) { const m = $('msg'); m.textContent = text; m.className = 'msg' + (err ? ' err' : ''); m.hidden = !text; }
   async function connect() {
     if (!navigator.requestMIDIAccess) {
@@ -370,7 +375,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     if (!o) return;
     const now = performance.now();
     if (!t || t <= now + 1) { try { o.send(data); } catch (e) {} return; }
-    if (nativeMIDI) { try { o.send(data, t); return; } catch (e) {} }
+    if (stampOK(o)) { try { o.send(data, t); return; } catch (e) {} }
     setTimeout(() => { try { o.send(data); } catch (e) {} }, t - now);
   }
   const outsUsed = () => [...new Set([S.bass.out, S.drums.out].filter(Boolean))];
@@ -716,6 +721,14 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   $('swing').oninput = e => { S.swing = +e.target.value; $('swingOut').textContent = S.swing + '%'; save(); };
   $('clock').onchange = e => { S.clock = e.target.checked; save(); };
   $('play').onclick = play;
+  $('testNote').onclick = () => {
+    const o = outMap[S.bass.out];
+    if (!o) { message('Сначала нажми «Подключить MIDI» и выбери выход для TD-3.', true); return; }
+    const bc = S.bass.ch - 1, n = S.bass.base;
+    try { o.send([0x90 | bc, n, 110]); } catch (e) { message('Нота не ушла: ' + describeError(e), true); return; }
+    setTimeout(() => { try { o.send([0x80 | bc, n, 0]); } catch (e) {} }, 700);
+    message('Послал ноту ' + noteName(n) + ' на «' + (o.name || S.bass.out) + '», канал ' + S.bass.ch + '. Если TD-3 молчит — проверь её MIDI-канал.');
+  };
   $('panic').onclick = () => { allOff(); held = null; };
   $('connect').onclick = connect;
   document.addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(e.target.tagName) && !e.target.isContentEditable) { e.preventDefault(); play(); } });
