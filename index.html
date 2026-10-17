@@ -193,6 +193,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       <label class="f out-sel">Выход<select id="bassOut"></select></label>
       <label class="f">Канал<select id="bassCh"></select></label>
       <button class="btn" id="testNote">Тест ноты</button>
+      <button class="btn" id="scanCh">Найти канал</button>
       <label class="f">Октава<select id="bassBase"><option value="24">C1</option><option value="36">C2</option><option value="48">C3</option></select></label>
     </div>
     <div class="steps" id="steps"></div>
@@ -721,6 +722,30 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   $('swing').oninput = e => { S.swing = +e.target.value; $('swingOut').textContent = S.swing + '%'; save(); };
   $('clock').onchange = e => { S.clock = e.target.checked; save(); };
   $('play').onclick = play;
+  let scan = null;
+  $('scanCh').onclick = () => {
+    if (scan) {
+      clearInterval(scan.timer);
+      S.bass.ch = scan.ch; save(); syncControls();
+      $('scanCh').textContent = 'Найти канал'; $('scanCh').classList.remove('on');
+      message('Готово: бас теперь идёт на канал ' + scan.ch + '.');
+      scan = null; return;
+    }
+    const o = outMap[S.bass.out];
+    if (!o) { message('Сначала нажми «Подключить MIDI» и выбери выход для TD-3.', true); return; }
+    if (playing) stop();
+    const n = S.bass.base;
+    scan = { ch: 0, timer: null };
+    $('scanCh').textContent = 'Услышал — стоп'; $('scanCh').classList.add('on');
+    const tick = () => {
+      scan.ch = scan.ch % 16 + 1;
+      const c = scan.ch - 1;
+      try { o.send([0x90 | c, n, 110]); } catch (e) {}
+      setTimeout(() => { try { o.send([0x80 | c, n, 0]); } catch (e) {} }, 900);
+      message('Канал ' + scan.ch + ' из 16. Как только TD-3 зазвучит — жми «Услышал — стоп».');
+    };
+    tick(); scan.timer = setInterval(tick, 1500);
+  };
   $('testNote').onclick = () => {
     const o = outMap[S.bass.out];
     if (!o) { message('Сначала нажми «Подключить MIDI» и выбери выход для TD-3.', true); return; }
