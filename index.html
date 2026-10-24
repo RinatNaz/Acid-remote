@@ -199,6 +199,8 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     <div class="row">
       <label class="f">Swing <input type="range" id="swing" min="50" max="75" step="1"></label>
       <output class="msg" id="swingOut">50%</output>
+      <label class="f">Темп ведёт<select id="syncSrc"><option value="">Компьютер</option></select></label>
+      <output class="msg" id="syncInfo"></output>
       <label class="check"><input type="checkbox" id="phoneSound"> <span id="soundLabel">Звук на компьютере</span></label>
     </div>
   </section>
@@ -426,6 +428,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       el.innerHTML = '<option value="">— не выбран —</option>' + outs.map(o => `<option value="${esc(o._key)}">${esc(o.name || o._key)}</option>`).join('');
       el.value = cur;
     }
+    fillInputs();
     save();
   }
   function send(outId, data, t) {
@@ -595,7 +598,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       pDrum(l, n, v === 2 || !!acc, t);
       send(S.drums.out, [0x80 | dc, n, 0], t + 40);
     }
-    for (const o of ownOuts(false)) for (let k = 0; k < 6; k++) send(o, [0xF8], t + k * dur / 6);
+    if (!following()) for (const o of ownOuts(false)) for (let k = 0; k < 6; k++) send(o, [0xF8], t + k * dur / 6);
     vis.push({ i, t });
   }
   function tick() {
@@ -616,6 +619,13 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   function play() {
     if (playing) return stop();
     ensureAudio();
+    if (following()) {
+      // Steps are driven by the machine's clock in onClock().
+      playing = true; step = 0; held = null; vis.length = 0; clk.ticks = 0;
+      ownOuts(true).forEach(o => { if (!isSource(o)) send(o, [0xFA]); });
+      $('play').classList.add('on'); $('play').textContent = '■ Stop';
+      return;
+    }
     playing = true; step = 0; held = null; vis.length = 0;
     nextT = performance.now() + 60;
     ownOuts(true).forEach(o => send(o, [0xFA], nextT - 1));
@@ -801,7 +811,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     for (const [l] of S.drums.map) S.drums.pat[l] = old[l] ? old[l].slice() : Array(16).fill(0);
     save(); renderDrums();
   };
-  const setBpm = v => { S.bpm = Math.max(40, Math.min(240, v)); $('bpmOut').textContent = S.bpm; save(); };
+  const setBpm = v => { if (following()) return; S.bpm = Math.max(40, Math.min(240, v)); $('bpmOut').textContent = S.bpm; save(); };
   let hold = null;
   for (const [id, d] of [['bpmDown', -1], ['bpmUp', 1]]) {
     const b = $(id);
@@ -1030,6 +1040,82 @@ Reply with only JSON in this shape:
       $('aiGo').disabled = false; $('aiStop').hidden = true;
     };
   }
+
+  /* ---------- Follow a machine's tempo (incoming MIDI clock) ---------- */
+  let inMap = {}, syncIn = null, clk = { ticks: 0, times: [] };
+  const following = () => !!(syncIn && S.syncSrc);
+  const isSource = outKey => !!(syncIn && outMap[outKey] && outMap[outKey].name === syncIn.name);
+  function listInputs() {
+    const res = [], o = midi && midi.inputs;
+    if (!o) return res;
+    if (typeof o.forEach === 'function') o.forEach(v => res.push(v));
+    else if (typeof o.values === 'function') {
+      const it = o.values();
+      if (Array.isArray(it)) res.push(...it);
+      else if (it && typeof it.next === 'function') for (let r = it.next(); !r.done; r = it.next()) res.push(r.value);
+    } else if (Array.isArray(o)) res.push(...o);
+    return res.filter(Boolean);
+  }
+  function fillInputs() {
+    const ins = listInputs();
+    inMap = {};
+    ins.forEach((p, i) => { p._key = String(p.id || p.name || 'in' + i); inMap[p._key] = p; });
+    const esc = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    $('syncSrc').innerHTML = '<option value="">Компьютер</option>' + ins.map(p => `<option value="${esc(p._key)}">Машина: ${esc(p.name || p._key)}</option>`).join('');
+    if (midi && !inMap[S.syncSrc]) S.syncSrc = '';
+    $('syncSrc').value = S.syncSrc || '';
+    attachSync();
+  }
+  function attachSync() {
+    if (syncIn) { try { syncIn.onmidimessage = null; } catch (e) {} }
+    syncIn = S.syncSrc ? inMap[S.syncSrc] || null : null;
+    clk = { ticks: 0, times: [] };
+    if (syncIn) {
+      try { syncIn.onmidimessage = e => onClock(e.data); } catch (e) {}
+      if (typeof syncIn.open === 'function') { try { syncIn.open(); } catch (e) {} }
+    }
+    renderSync();
+  }
+  function renderSync() {
+    const f = following();
+    $('bpmDown').disabled = f; $('bpmUp').disabled = f;
+    $('syncInfo').textContent = !f ? '' : clk.bpm ? 'темп от машины: ' + clk.bpm.toFixed(1) + ' BPM' : 'жду темп — запусти машину';
+  }
+  function onClock(d) {
+    const b = d && d[0];
+    if (b === 0xF8) {
+      const now = performance.now();
+      clk.times.push(now);
+      if (clk.times.length > 25) clk.times.shift();
+      if (clk.times.length >= 7) {
+        const n = clk.times.length - 1;
+        clk.iv = (clk.times[n] - clk.times[0]) / n;
+        clk.bpm = 60000 / (clk.iv * 24);
+      }
+      for (const o of ownOuts(false)) if (!isSource(o)) send(o, [0xF8]);
+      if (playing) {
+        if (clk.ticks % 6 === 0) {
+          const dur = (clk.iv || stepLen() / 6) * 6;
+          const off = step % 2 === 1 ? dur * (S.swing - 50) / 50 : 0;
+          scheduleStep(step, now + 2 + off, dur);
+          step = (step + 1) % 16;
+        }
+        clk.ticks++;
+      }
+      if (now - (clk.shown || 0) > 400) {
+        clk.shown = now;
+        if (clk.bpm) { S.bpm = Math.round(clk.bpm); $('bpmOut').textContent = S.bpm; }
+        renderSync();
+      }
+    } else if (b === 0xFA) { if (playing) stop(); play(); }
+    else if (b === 0xFB) { if (!playing) play(); }
+    else if (b === 0xFC) { if (playing) stop(); }
+  }
+  $('syncSrc').onchange = e => {
+    if (playing) stop();
+    S.syncSrc = e.target.value; save(); attachSync();
+    message(S.syncSrc ? 'Темп теперь задаёт машина. Крути темп на ней — компьютер и вторая машина пойдут следом.' : 'Синхронизация разъединена: темп снова задаёт компьютер.');
+  };
 
   /* ---------- Machines: run/mute and pattern banks ---------- */
   const hasNotes = (m, i) => m === 'bass'
