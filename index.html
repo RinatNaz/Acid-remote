@@ -1308,13 +1308,22 @@ Reply with only JSON in this shape:
     }
     renderLib();
   });
-  $('libExport').onclick = () => {
+  $('libExport').onclick = async () => {
     const list = readLib();
     if (!list.length) { libMsg('Библиотека пуста — нечего экспортировать.', true); return; }
-    const blob = new Blob([JSON.stringify({ app: 'acid-remote', version: 1, tracks: list }, null, 1)], { type: 'application/json' });
+    const text = JSON.stringify({ app: 'acid-remote', version: 1, tracks: list }, null, 1);
+    const filename = 'acid-remote-' + new Date().toISOString().slice(0, 10) + '.json';
+    // Inside Claude the page may only hand out files through its downloads capability.
+    const dls = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
+    if (dls) {
+      try { await dls.save({ filename, data: text }); libMsg(`Файл с ${list.length} трек(ами) готов. Перешли его на другое устройство и открой там через «Импорт».`); }
+      catch (e) { libMsg('Файл не сохранён.', true); }
+      return;
+    }
+    const blob = new Blob([text], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'acid-remote-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     libMsg(`Скачан файл с ${list.length} трек(ами). Перешли его на другое устройство и открой там через «Импорт».`);
