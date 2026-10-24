@@ -225,6 +225,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     <div class="row">
       <label class="f out-sel">Выход<select id="drumOut"></select></label>
       <label class="f">Канал<select id="drumCh"></select></label>
+      <button class="btn" id="scanDrumCh">Найти канал</button>
       <label class="f">Машина<select id="kit"></select></label>
     </div>
     <div class="drum-grid" id="drumGrid"></div>
@@ -824,30 +825,36 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     };
   }
   $('play').onclick = play;
+  // Channel finder: plays one hit per MIDI channel (MIDI only, never the
+  // computer sound) so whatever is heard comes from the machine itself.
   let scan = null;
-  $('scanCh').onclick = () => {
+  function scanChannel(m, btnId, machine) {
+    const btn = $(btnId);
     if (scan) {
-      clearInterval(scan.timer);
-      S.bass.ch = scan.ch; save(); syncControls();
-      $('scanCh').textContent = 'Найти канал'; $('scanCh').classList.remove('on');
-      message('Готово: бас теперь идёт на канал ' + scan.ch + '.');
-      scan = null; return;
+      const done = scan; clearInterval(done.timer); scan = null;
+      $(done.btnId).textContent = 'Найти канал'; $(done.btnId).classList.remove('on');
+      if (done.m !== m) return;
+      S[m].ch = done.ch; save(); syncControls();
+      message(machine + ' теперь на канале ' + done.ch + '.');
+      return;
     }
-    const o = outMap[S.bass.out];
-    if (!o) { message('Сначала нажми «Подключить MIDI» и выбери выход для TD-3.', true); return; }
+    const o = outMap[S[m].out];
+    if (!o) { message('Сначала нажми «Подключить MIDI» и выбери выход для ' + machine + '.', true); return; }
     if (playing) stop();
-    const n = S.bass.base;
-    scan = { ch: 0, timer: null };
-    $('scanCh').textContent = 'Услышал — стоп'; $('scanCh').classList.add('on');
+    const n = m === 'bass' ? S.bass.base : ((S.drums.map.find(x => x[0] === 'BD') || S.drums.map.find(x => x[1] !== null) || [0, 36])[1]);
+    scan = { m, btnId, ch: 0, timer: null };
+    btn.classList.add('on');
     const tick = () => {
       scan.ch = scan.ch % 16 + 1;
       const c = scan.ch - 1;
       try { o.send([0x90 | c, n, 110]); } catch (e) {}
       setTimeout(() => { try { o.send([0x80 | c, n, 0]); } catch (e) {} }, 900);
-      message('Канал ' + scan.ch + ' из 16. Как только TD-3 зазвучит — жми «Услышал — стоп».');
+      btn.textContent = 'Канал ' + scan.ch + ' — услышал? жми';
     };
     tick(); scan.timer = setInterval(tick, 1500);
-  };
+  }
+  $('scanCh').onclick = () => scanChannel('bass', 'scanCh', 'TD-3');
+  $('scanDrumCh').onclick = () => scanChannel('drums', 'scanDrumCh', 'Драм-машина');
   $('testNote').onclick = () => {
     const o = outMap[S.bass.out];
     if (!o) { message('Сначала нажми «Подключить MIDI» и выбери выход для TD-3.', true); return; }
