@@ -624,6 +624,16 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       playing = true; step = 0; held = null; vis.length = 0; clk.ticks = 0;
       ownOuts(true).forEach(o => { if (!isSource(o)) send(o, [0xFA]); });
       $('play').classList.add('on'); $('play').textContent = '■ Stop';
+      // No clock from the machine within 2 s: fall back to the computer's tempo
+      // instead of sitting in silence.
+      const startedAt = performance.now();
+      setTimeout(() => {
+        if (!playing || !following()) return;
+        if (clk.times.length && clk.times[clk.times.length - 1] > startedAt) return;
+        stop();
+        S.syncSrc = ''; save(); fillInputs();
+        message('Машина не прислала темп за 2 секунды, поэтому темп снова ведёт компьютер. Нажми Play ещё раз. Чтобы вести темп с машины, сначала запусти её собственный Play, а синхронизацию на ней поставь на INT.', true);
+      }, 2000);
       return;
     }
     playing = true; step = 0; held = null; vis.length = 0;
