@@ -66,6 +66,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .panel.machine { background: linear-gradient(180deg, #25262e, #1b1c22 60%); box-shadow: inset 0 1px 0 #3a3b46; }
 .panel.machine h2 { font-size: 22px; }
 .machine-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; background: #15161b; border-radius: 8px; border: 1px solid var(--line); }
+.sent { font-variant-numeric: tabular-nums; }
+.sent.warn { color: #ffb4a6; }
 .pats { display: flex; gap: 4px; flex-wrap: wrap; }
 .pat { min-width: 38px; min-height: 38px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-family: var(--mono); position: relative; }
 .pat.has::after { content: ""; position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--dim); }
@@ -222,6 +224,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       <button class="btn run" id="drumRun" title="Включить или заглушить драм-машину. Во время игры срабатывает с начала следующего такта.">ИГРАЕТ</button>
       <span class="msg">Паттерн</span>
       <div class="pats" id="drumPats"></div>
+      <output class="msg sent" id="drumSent"></output>
       <label class="f">Что играет<select id="drumMode"><option value="notes">Ноты отсюда</option><option value="own">Свой паттерн машины</option></select></label>
     </div>
     <div class="row">
@@ -246,6 +249,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       <button class="btn run" id="bassRun" title="Включить или заглушить TD-3. Во время игры срабатывает с начала следующего такта.">ИГРАЕТ</button>
       <span class="msg">Паттерн</span>
       <div class="pats" id="bassPats"></div>
+      <output class="msg sent" id="bassSent"></output>
       <label class="f">Что играет<select id="bassMode"><option value="notes">Ноты отсюда</option><option value="own">Свой паттерн машины</option></select></label>
     </div>
     <div class="row">
@@ -431,10 +435,12 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     fillInputs();
     save();
   }
+  const sentNotes = {};
   function send(outId, data, t) {
     if (!midi || !outId) return;
     const o = outMap[outId];
     if (!o) return;
+    if ((data[0] & 0xF0) === 0x90 && data[2] > 0) sentNotes[outId] = (sentNotes[outId] || 0) + 1;
     const now = performance.now();
     if (!t || t <= now + 1) { try { o.send(data); } catch (e) {} return; }
     if (stampOK(o)) { try { o.send(data, t); return; } catch (e) {} }
@@ -1123,6 +1129,17 @@ Reply with only JSON in this shape:
     else if (b === 0xFC) { if (playing) stop(); }
   }
   setInterval(() => { if (following()) renderSync(); }, 500);
+  // Why a machine is (not) receiving notes, in plain words.
+  setInterval(() => {
+    for (const [m, id] of [['bass', 'bassSent'], ['drums', 'drumSent']]) {
+      const el = $(id), d = S[m];
+      el.className = 'msg sent';
+      if (!d.out) { el.textContent = 'выход не выбран'; el.classList.add('warn'); }
+      else if (d.mode === 'own') el.textContent = 'режим «свой паттерн»: ноты не шлются';
+      else if (!d.on) { el.textContent = 'выключена (МОЛЧИТ): ноты не шлются'; el.classList.add('warn'); }
+      else el.textContent = 'нот отправлено: ' + (sentNotes[d.out] || 0) + ' · канал ' + d.ch;
+    }
+  }, 500);
   $('syncSrc').onchange = e => {
     if (playing) stop();
     S.syncSrc = e.target.value; save(); attachSync();
