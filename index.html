@@ -70,6 +70,16 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .sent { font-variant-numeric: tabular-nums; }
 .sent.warn { color: #ffb4a6; }
 .panel.song { border-top: 3px solid var(--ok); }
+.panel.library { border-top: 3px solid var(--ai); }
+input[type=text] { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 40px; font-size: 16px; width: 100%; }
+label.btn { display: inline-flex; align-items: center; cursor: pointer; }
+.lib { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.lib li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.lib .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib .nm small { display: block; color: var(--dim); font-size: 11px; }
+.lib .btn { min-height: 34px; padding: 4px 10px; }
+.lib .btn.sure { background: var(--drum); color: #1f0d08; border-color: var(--drum); }
+.lib:empty::after { content: "Пока пусто. Введи название и нажми «Сохранить»."; color: var(--dim); font-size: 13px; }
 .parts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; counter-reset: part; }
 .parts li { counter-increment: part; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
 .parts li::before { content: counter(part); font-family: var(--mono); color: var(--dim); min-width: 2ch; }
@@ -172,7 +182,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
 
 <div class="app">
   <header>
-    <h1>Acid <span>Remote</span> <small class="build" title="Номер версии: если он не изменился после обновления, открыта старая копия">сборка 16</small></h1>
+    <h1>Acid <span>Remote</span> <small class="build" title="Номер версии: если он не изменился после обновления, открыта старая копия">сборка 17</small></h1>
     <div class="row">
       <div class="status"><i class="dot" id="midiDot"></i><span id="midiStatus">MIDI не подключён</span></div>
       <button class="btn primary" id="connect">Подключить MIDI</button>
@@ -295,6 +305,22 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   </section>
   </div>
 
+  <section class="panel library">
+    <div class="row spread">
+      <h2>Библиотека</h2>
+      <div class="row">
+        <button class="btn" id="libExport" title="Скачать все сохранённые треки одним файлом — для переноса на другое устройство">Экспорт в файл</button>
+        <label class="btn" for="libImport" title="Добавить треки из файла, сделанного кнопкой «Экспорт»">Импорт из файла<input type="file" id="libImport" accept=".json,application/json" hidden></label>
+      </div>
+    </div>
+    <div class="row">
+      <label class="f out-sel">Название<input type="text" id="libName" maxlength="60" placeholder="Например: Acid ночь 126"></label>
+      <button class="btn primary" id="libSave">Сохранить</button>
+    </div>
+    <ul class="lib" id="lib"></ul>
+    <p class="msg" id="libMsg">Сохраняется всё: паттерны обеих машин (все 8), трек, темп, swing и набор барабанов. Выходы и каналы остаются от текущего подключения. Библиотека хранится в этом браузере; чтобы перенести её на телефон или планшет, сделай «Экспорт в файл», перешли файл себе и открой его через «Импорт».</p>
+  </section>
+
   <section class="panel song">
     <div class="row spread">
       <h2>Track</h2>
@@ -370,7 +396,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     if (saved && saved.bass && saved.drums && KITS[saved.drums.kit]) S = saved;
   } catch (e) {}
   const emptyDrums = () => { const p = {}; for (const [l] of S.drums.map) p[l] = Array(16).fill(0); return p; };
-  (function normalize() {
+  function normalize() {
     if (!Array.isArray(S.bass.patterns)) S.bass.patterns = [S.bass.steps];
     while (S.bass.patterns.length < 8) S.bass.patterns.push(Array.from({ length: 16 }, blankStep));
     S.bass.cur = Math.min(7, Math.max(0, S.bass.cur | 0));
@@ -385,7 +411,8 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     if (!S.drums.mute || typeof S.drums.mute !== 'object') S.drums.mute = {};
     if (!S.song || !Array.isArray(S.song.parts)) S.song = { on: false, loop: false, parts: [] };
     if (S.drums.on === undefined) S.drums.on = true;
-  })();
+  }
+  normalize();
   // Edits may replace S.bass.steps / S.drums.pat wholesale; keep the bank in step.
   const save = () => {
     S.bass.patterns[S.bass.cur] = S.bass.steps;
@@ -1212,6 +1239,106 @@ Reply with only JSON in this shape:
     message(S.syncSrc ? 'Темп теперь задаёт машина. Крути темп на ней — компьютер и вторая машина пойдут следом.' : 'Синхронизация разъединена: темп снова задаёт компьютер.');
   };
 
+  /* ---------- Library: named sessions, export/import ---------- */
+  const LIB = 'acid-remote-library';
+  // Device wiring stays with the device, not with the composition.
+  const DEVICE_KEYS = [['bass', 'out'], ['bass', 'ch'], ['drums', 'out'], ['drums', 'ch']];
+  function readLib() { try { const v = JSON.parse(localStorage.getItem(LIB) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function writeLib(list) { try { localStorage.setItem(LIB, JSON.stringify(list)); return true; } catch (e) { libMsg('Не получилось сохранить: браузер не даёт места. Сделай «Экспорт в файл», чтобы не потерять треки.', true); return false; } }
+  function libMsg(t, err) { const m = $('libMsg'); m.textContent = t; m.className = 'msg' + (err ? ' err' : ''); }
+  function sessionSnapshot() {
+    save();
+    const d = JSON.parse(JSON.stringify(S));
+    for (const [m, k] of DEVICE_KEYS) delete d[m][k];
+    delete d.syncSrc; delete d.phone;
+    return d;
+  }
+  const fmtDate = ts => { try { return new Date(ts).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+  const escH = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  function renderLib() {
+    const list = readLib();
+    $('lib').innerHTML = list.map((it, i) => `<li>
+      <span class="nm" title="${escH(it.name)}">${escH(it.name)}<small>${it.data && it.data.bpm ? it.data.bpm + ' BPM · ' : ''}${fmtDate(it.savedAt)}</small></span>
+      <button class="btn" data-open="${i}">Открыть</button>
+      <button class="btn" data-del="${i}" aria-label="Удалить ${escH(it.name)}">✕</button>
+    </li>`).join('');
+  }
+  function loadSession(data) {
+    if (playing) stop();
+    const keep = {};
+    for (const [m, k] of DEVICE_KEYS) keep[m + k] = S[m][k];
+    const syncSrc = S.syncSrc, phone = S.phone;
+    S = JSON.parse(JSON.stringify(data));
+    if (!S.bass || !S.drums) throw new Error('bad session');
+    if (!KITS[S.drums.kit]) { S.drums.kit = 'RD-6 (606)'; S.drums.map = KITS['RD-6 (606)'].map(x => x.slice()); }
+    for (const [m, k] of DEVICE_KEYS) S[m][k] = keep[m + k];
+    S.syncSrc = syncSrc; S.phone = phone;
+    normalize(); sel = 0; songPos = null; undo = null;
+    save(); syncControls(); renderBass(); renderDrums(); renderMachines(); renderSong();
+  }
+  $('libSave').onclick = () => {
+    const name = $('libName').value.trim();
+    if (!name) { libMsg('Сначала напиши название.', true); $('libName').focus(); return; }
+    const list = readLib(), i = list.findIndex(x => x.name === name);
+    const item = { name, savedAt: Date.now(), data: sessionSnapshot() };
+    if (i >= 0) list[i] = item; else list.unshift(item);
+    if (writeLib(list)) { libMsg(i >= 0 ? `«${name}» обновлён.` : `«${name}» сохранён.`); renderLib(); }
+  };
+  // Two taps to confirm: dialogs are not available everywhere this page runs.
+  let armed = null;
+  $('lib').addEventListener('click', e => {
+    const b = e.target.closest('[data-open],[data-del]'); if (!b) return;
+    const key = b.dataset.open !== undefined ? 'o' + b.dataset.open : 'd' + b.dataset.del;
+    if (armed !== key) {
+      renderLib(); armed = key;
+      const nb = $('lib').querySelector(b.dataset.open !== undefined ? `[data-open="${b.dataset.open}"]` : `[data-del="${b.dataset.del}"]`);
+      nb.classList.add('sure'); nb.textContent = b.dataset.open !== undefined ? 'Точно? Текущее заменится' : 'Удалить?';
+      setTimeout(() => { if (armed === key) { armed = null; renderLib(); } }, 3000);
+      return;
+    }
+    armed = null;
+    const list = readLib();
+    if (b.dataset.open !== undefined) {
+      const it = list[+b.dataset.open]; if (!it) return;
+      try { loadSession(it.data); $('libName').value = it.name; libMsg(`Открыт «${it.name}». Жми Play.`); }
+      catch (err) { libMsg('Этот трек не открылся: файл повреждён.', true); }
+    } else {
+      const [gone] = list.splice(+b.dataset.del, 1);
+      writeLib(list); libMsg(gone ? `«${gone.name}» удалён.` : '');
+    }
+    renderLib();
+  });
+  $('libExport').onclick = () => {
+    const list = readLib();
+    if (!list.length) { libMsg('Библиотека пуста — нечего экспортировать.', true); return; }
+    const blob = new Blob([JSON.stringify({ app: 'acid-remote', version: 1, tracks: list }, null, 1)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'acid-remote-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    libMsg(`Скачан файл с ${list.length} трек(ами). Перешли его на другое устройство и открой там через «Импорт».`);
+  };
+  $('libImport').onchange = e => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const j = JSON.parse(r.result);
+        const incoming = (Array.isArray(j) ? j : j.tracks || []).filter(x => x && x.name && x.data && x.data.bass && x.data.drums);
+        if (!incoming.length) throw new Error('empty');
+        const list = readLib(); let added = 0, updated = 0;
+        for (const it of incoming) {
+          const i = list.findIndex(x => x.name === it.name);
+          if (i < 0) { list.push(it); added++; } else if ((it.savedAt || 0) > (list[i].savedAt || 0)) { list[i] = it; updated++; }
+        }
+        if (writeLib(list)) { libMsg(`Импорт: добавлено ${added}, обновлено ${updated}.`); renderLib(); }
+      } catch (err) { libMsg('Это не файл библиотеки Acid Remote.', true); }
+      e.target.value = '';
+    };
+    r.readAsText(f);
+  };
+
   /* ---------- Song: parts played one after another ---------- */
   let songPos = null, songEnded = false;
   function applyPart(pt, t) {
@@ -1337,7 +1464,7 @@ Reply with only JSON in this shape:
   // Keep the "has notes" dots current after edits.
   document.addEventListener('click', e => { if (e.target.closest('.steps, .drum-grid, .editor, #rand, #bclear, #drand, #dclear, #presetGo, #aiUndo')) setTimeout(renderMachines, 0); });
 
-  syncControls(); fillOutputs(); renderBass(); renderDrums(); renderMachines(); renderSong(); frame(); initAI();
+  syncControls(); fillOutputs(); renderBass(); renderDrums(); renderMachines(); renderSong(); renderLib(); frame(); initAI();
   if (nativeMIDI && navigator.permissions) {
     navigator.permissions.query({ name: 'midi' }).then(p => { if (p.state === 'granted') connect(); }).catch(() => {});
   }
