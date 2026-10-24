@@ -26,6 +26,7 @@
 html, body { background: var(--bg); color: var(--fg); }
 body { font-family: var(--body); font-size: 15px; line-height: 1.45; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 button, select, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--bass); outline-offset: 2px; }
@@ -53,6 +54,25 @@ textarea {
   width: 100%; min-height: 76px; resize: vertical; font: inherit; font-size: 16px; color: var(--fg);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px;
 }
+.rack { display: grid; gap: 14px; }
+@media (min-width: 1100px) {
+  .app { max-width: 1560px; }
+  .rack { grid-template-columns: 1fr 1fr; align-items: start; }
+  .rack .steps { grid-template-columns: repeat(16, 1fr); }
+}
+.panel.machine { background: linear-gradient(180deg, #25262e, #1b1c22 60%); box-shadow: inset 0 1px 0 #3a3b46; }
+.panel.machine h2 { font-size: 22px; }
+.machine-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; background: #15161b; border-radius: 8px; border: 1px solid var(--line); }
+.pats { display: flex; gap: 4px; flex-wrap: wrap; }
+.pat { min-width: 38px; min-height: 38px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-family: var(--mono); position: relative; }
+.pat.has::after { content: ""; position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--dim); }
+.bass .pat.cur { background: var(--bass); color: #1a1408; border-color: var(--bass); }
+.drums .pat.cur { background: var(--drum); color: #1f0d08; border-color: var(--drum); }
+.run { min-width: 128px; }
+.run.on { background: var(--ok); color: #0d1f14; border-color: var(--ok); }
+.queued { animation: blink .5s steps(2, start) infinite; }
+@keyframes blink { to { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .queued { animation: none; outline: 2px dashed var(--fg); } }
 .col { display: flex; flex-direction: column; gap: 10px; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -181,13 +201,44 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     <p class="msg" id="aiMsg">Выбери стиль, нажми «Загрузить», потом Play. Старый паттерн можно вернуть кнопкой.</p>
   </section>
 
-  <section class="panel bass">
+<div class="rack">
+  <section class="panel machine drums">
     <div class="row spread">
-      <h2>Bass line · TD-3</h2>
+      <h2>RD · барабаны</h2>
+      <div class="row">
+        <div class="seg half-toggle" id="halfSeg"><button data-h="0">1–8</button><button data-h="1">9–16</button></div>
+        <button class="btn" id="drand">Random</button>
+        <button class="btn" id="addRow" title="Добавить звук, который дал мод">+ звук</button>
+        <button class="btn" id="delRow" title="Убрать последний добавленный звук">− звук</button>
+        <button class="btn" id="dclear">Clear</button>
+      </div>
+    </div>
+    <div class="machine-bar">
+      <button class="btn run" id="drumRun" title="Включить или заглушить драм-машину. Во время игры срабатывает с начала следующего такта.">ИГРАЕТ</button>
+      <span class="msg">Паттерн</span>
+      <div class="pats" id="drumPats"></div>
+    </div>
+    <div class="row">
+      <label class="f out-sel">Выход<select id="drumOut"></select></label>
+      <label class="f">Канал<select id="drumCh"></select></label>
+      <label class="f">Машина<select id="kit"></select></label>
+    </div>
+    <div class="drum-grid" id="drumGrid"></div>
+    <p class="msg">Тап по клетке: удар → акцент → пусто. Число рядом с инструментом — номер MIDI-ноты, его можно поменять, если у твоей машины другая раскладка. Строка <b>AC</b> — общий акцент, как на 606: всё, что бьёт на этом шаге, звучит с акцентом. «+ звук» добавляет строку для звуков, которые появились после мода.</p>
+  </section>
+
+  <section class="panel machine bass">
+    <div class="row spread">
+      <h2>TD-3 · бас</h2>
       <div class="row">
         <button class="btn" id="rand">Random acid</button>
         <button class="btn" id="bclear">Clear</button>
       </div>
+    </div>
+    <div class="machine-bar">
+      <button class="btn run" id="bassRun" title="Включить или заглушить TD-3. Во время игры срабатывает с начала следующего такта.">ИГРАЕТ</button>
+      <span class="msg">Паттерн</span>
+      <div class="pats" id="bassPats"></div>
     </div>
     <div class="row">
       <label class="f out-sel">Выход<select id="bassOut"></select></label>
@@ -215,26 +266,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       </div>
     </div>
   </section>
-
-  <section class="panel drums">
-    <div class="row spread">
-      <h2>Drums · RD</h2>
-      <div class="row">
-        <div class="seg half-toggle" id="halfSeg"><button data-h="0">1–8</button><button data-h="1">9–16</button></div>
-        <button class="btn" id="drand">Random</button>
-        <button class="btn" id="addRow" title="Добавить звук, который дал мод">+ звук</button>
-        <button class="btn" id="delRow" title="Убрать последний добавленный звук">− звук</button>
-        <button class="btn" id="dclear">Clear</button>
-      </div>
-    </div>
-    <div class="row">
-      <label class="f out-sel">Выход<select id="drumOut"></select></label>
-      <label class="f">Канал<select id="drumCh"></select></label>
-      <label class="f">Машина<select id="kit"></select></label>
-    </div>
-    <div class="drum-grid" id="drumGrid"></div>
-    <p class="msg">Тап по клетке: удар → акцент → пусто. Число рядом с инструментом — номер MIDI-ноты, его можно поменять, если у твоей машины другая раскладка. Строка <b>AC</b> — общий акцент, как на 606: всё, что бьёт на этом шаге, звучит с акцентом. «+ звук» добавляет строку для звуков, которые появились после мода.</p>
-  </section>
+  </div>
 
   <details>
     <summary>Как подключить</summary>
@@ -292,7 +324,25 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
     if (saved && saved.bass && saved.drums && KITS[saved.drums.kit]) S = saved;
   } catch (e) {}
-  const save = () => { try { localStorage.setItem(STORE, JSON.stringify(S)); } catch (e) {} };
+  const emptyDrums = () => { const p = {}; for (const [l] of S.drums.map) p[l] = Array(16).fill(0); return p; };
+  (function normalize() {
+    if (!Array.isArray(S.bass.patterns)) S.bass.patterns = [S.bass.steps];
+    while (S.bass.patterns.length < 8) S.bass.patterns.push(Array.from({ length: 16 }, blankStep));
+    S.bass.cur = Math.min(7, Math.max(0, S.bass.cur | 0));
+    S.bass.steps = S.bass.patterns[S.bass.cur];
+    if (!Array.isArray(S.drums.patterns)) S.drums.patterns = [S.drums.pat];
+    while (S.drums.patterns.length < 8) S.drums.patterns.push(emptyDrums());
+    S.drums.cur = Math.min(7, Math.max(0, S.drums.cur | 0));
+    S.drums.pat = S.drums.patterns[S.drums.cur];
+    if (S.bass.on === undefined) S.bass.on = true;
+    if (S.drums.on === undefined) S.drums.on = true;
+  })();
+  // Edits may replace S.bass.steps / S.drums.pat wholesale; keep the bank in step.
+  const save = () => {
+    S.bass.patterns[S.bass.cur] = S.bass.steps;
+    S.drums.patterns[S.drums.cur] = S.drums.pat;
+    try { localStorage.setItem(STORE, JSON.stringify(S)); } catch (e) {}
+  };
 
   const $ = id => document.getElementById(id);
   let sel = 0, half = 0, nowStep = -1;
@@ -477,10 +527,32 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   const stepLen = () => 60000 / S.bpm / 4;
   const midiNote = st => S.bass.base + st.p + 12 * st.o;
 
+  const queued = { bass: null, drums: null };
+  let uiDirty = false;
+  function applyQueued(m, t) {
+    const q = queued[m];
+    if (!q) return;
+    queued[m] = null;
+    save();
+    if ('pat' in q) {
+      S[m].cur = q.pat;
+      if (m === 'bass') S.bass.steps = S.bass.patterns[q.pat];
+      else S.drums.pat = S.drums.patterns[q.pat];
+    }
+    if ('on' in q) {
+      S[m].on = q.on;
+      if (m === 'bass' && !q.on && held !== null) {
+        send(S.bass.out, [0x80 | (S.bass.ch - 1), held, 0], t);
+        pBassOff(t); held = null;
+      }
+    }
+    uiDirty = true;
+  }
   function scheduleStep(i, t, dur) {
+    if (i === 0) { applyQueued('bass', t); applyQueued('drums', t); }
     const bc = S.bass.ch - 1;
-    const st = S.bass.steps[i];
-    const nx = S.bass.steps[(i + 1) % 16];
+    const st = S.bass.on ? S.bass.steps[i] : { on: 0 };
+    const nx = S.bass.on ? S.bass.steps[(i + 1) % 16] : { on: 0 };
     if (st.on) {
       const n = midiNote(st);
       const vel = st.a ? 127 : 80;
@@ -502,7 +574,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     }
     const dc = S.drums.ch - 1;
     const acc = (S.drums.pat.AC || [])[i];
-    for (const [l, n] of S.drums.map) {
+    for (const [l, n] of (S.drums.on ? S.drums.map : [])) {
       const v = (S.drums.pat[l] || [])[i];
       if (!v || n === null) continue;
       send(S.drums.out, [0x90 | dc, n, v === 2 || acc ? 127 : 96], t);
@@ -542,6 +614,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     const t = performance.now() + 150;
     if (S.clock) outsUsed().forEach(o => send(o, [0xFC], t));
     allOff(t); held = null; pBassOff(performance.now());
+    applyQueued('bass', t); applyQueued('drums', t);
     $('play').classList.remove('on'); $('play').textContent = '▶ Play';
     setNow(-1);
   }
@@ -550,6 +623,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     let last = null;
     while (vis.length && vis[0].t <= now) last = vis.shift();
     if (last && playing) setNow(last.i);
+    if (uiDirty) { uiDirty = false; save(); renderBass(); renderDrums(); renderMachines(); }
     requestAnimationFrame(frame);
   }
   function setNow(i) {
@@ -922,7 +996,49 @@ Reply with only JSON in this shape:
     };
   }
 
-  syncControls(); fillOutputs(); renderBass(); renderDrums(); frame(); initAI();
+  /* ---------- Machines: run/mute and pattern banks ---------- */
+  const hasNotes = (m, i) => m === 'bass'
+    ? S.bass.patterns[i].some(st => st.on)
+    : Object.values(S.drums.patterns[i]).some(a => Array.isArray(a) && a.some(Boolean));
+  function renderMachines() {
+    for (const [m, runId, patsId] of [['bass', 'bassRun', 'bassPats'], ['drums', 'drumRun', 'drumPats']]) {
+      const q = queued[m] || {}, on = S[m].on;
+      const run = $(runId);
+      run.className = 'btn run' + (on ? ' on' : '') + ('on' in q ? ' queued' : '');
+      run.textContent = ('on' in q) ? (q.on ? 'ВКЛ с такта…' : 'ВЫКЛ с такта…') : (on ? 'ИГРАЕТ' : 'МОЛЧИТ');
+      $(patsId).innerHTML = Array.from({ length: 8 }, (_, i) =>
+        `<button class="pat${i === S[m].cur ? ' cur' : ''}${q.pat === i ? ' queued' : ''}${hasNotes(m, i) ? ' has' : ''}" data-pat="${i}" aria-label="Паттерн ${i + 1}">${i + 1}</button>`).join('');
+    }
+  }
+  function selectPat(m, i) {
+    if (playing) {
+      if (i === S[m].cur) { if (queued[m]) delete queued[m].pat; }
+      else queued[m] = Object.assign(queued[m] || {}, { pat: i });
+    } else {
+      queued[m] = Object.assign(queued[m] || {}, { pat: i });
+      applyQueued(m, performance.now());
+      uiDirty = false; save(); renderBass(); renderDrums();
+    }
+    renderMachines();
+  }
+  function toggleRun(m) {
+    const q = queued[m] || {};
+    const next = !('on' in q ? q.on : S[m].on);
+    if (!playing) {
+      S[m].on = next;
+      if (m === 'bass' && !next) pBassOff(performance.now());
+    } else if (next === S[m].on) { delete q.on; queued[m] = q; }
+    else queued[m] = Object.assign(q, { on: next });
+    save(); renderMachines();
+  }
+  $('bassRun').onclick = () => toggleRun('bass');
+  $('drumRun').onclick = () => toggleRun('drums');
+  $('bassPats').addEventListener('click', e => { const b = e.target.closest('[data-pat]'); if (b) selectPat('bass', +b.dataset.pat); });
+  $('drumPats').addEventListener('click', e => { const b = e.target.closest('[data-pat]'); if (b) selectPat('drums', +b.dataset.pat); });
+  // Keep the "has notes" dots current after edits.
+  document.addEventListener('click', e => { if (e.target.closest('.steps, .drum-grid, .editor, #rand, #bclear, #drand, #dclear, #presetGo, #aiUndo')) setTimeout(renderMachines, 0); });
+
+  syncControls(); fillOutputs(); renderBass(); renderDrums(); renderMachines(); frame(); initAI();
   if (nativeMIDI && navigator.permissions) {
     navigator.permissions.query({ name: 'midi' }).then(p => { if (p.state === 'granted') connect(); }).catch(() => {});
   }
