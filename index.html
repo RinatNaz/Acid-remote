@@ -159,7 +159,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
 
 <div class="app">
   <header>
-    <h1>Acid <span>Remote</span> <small class="build" title="Номер версии: если он не изменился после обновления, открыта старая копия">сборка 13</small></h1>
+    <h1>Acid <span>Remote</span> <small class="build" title="Номер версии: если он не изменился после обновления, открыта старая копия">сборка 14</small></h1>
     <div class="row">
       <div class="status"><i class="dot" id="midiDot"></i><span id="midiStatus">MIDI не подключён</span></div>
       <button class="btn primary" id="connect">Подключить MIDI</button>
@@ -197,6 +197,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
         <output id="bpmOut">126</output>
         <button class="btn" id="bpmUp" aria-label="Быстрее">+</button>
         <span class="msg">BPM</span>
+        <button class="btn" id="tap" title="Стучи в ритм 4 раза — темп подстроится">Tap</button>
       </div>
     </div>
     <div class="row">
@@ -835,6 +836,26 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     b.addEventListener('pointerdown', () => { setBpm(S.bpm + d); hold = setTimeout(function rep() { setBpm(S.bpm + d); hold = setTimeout(rep, 70); }, 400); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => clearTimeout(hold)));
   }
+  // Tempo by feel: wheel/trackpad over the tempo, arrow keys, and tap tempo.
+  document.querySelector('.tempo').addEventListener('wheel', e => {
+    e.preventDefault();
+    setBpm(S.bpm + (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 5 : 1));
+  }, { passive: false });
+  document.addEventListener('keydown', e => {
+    if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.target.isContentEditable) return;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      setBpm(S.bpm + (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 5 : 1));
+    }
+  });
+  let taps = [];
+  $('tap').onclick = () => {
+    const now = performance.now();
+    if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+    taps.push(now);
+    if (taps.length > 5) taps.shift();
+    if (taps.length >= 2) setBpm(Math.round(60000 / ((taps[taps.length - 1] - taps[0]) / (taps.length - 1))));
+  };
   $('swing').oninput = e => { S.swing = +e.target.value; $('swingOut').textContent = S.swing + '%'; save(); };
   for (const [id, m] of [['bassMode', 'bass'], ['drumMode', 'drums']]) {
     $(id).onchange = e => {
