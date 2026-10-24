@@ -69,6 +69,19 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .machine-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; background: #15161b; border-radius: 8px; border: 1px solid var(--line); }
 .sent { font-variant-numeric: tabular-nums; }
 .sent.warn { color: #ffb4a6; }
+.panel.song { border-top: 3px solid var(--ok); }
+.parts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; counter-reset: part; }
+.parts li { counter-increment: part; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+.parts li::before { content: counter(part); font-family: var(--mono); color: var(--dim); min-width: 2ch; }
+.parts li.now { border-color: var(--ok); box-shadow: inset 3px 0 0 var(--ok); }
+.parts .what { flex: 1 1 260px; min-width: 0; font-size: 13px; }
+.parts select { min-height: 34px; padding: 4px 8px; }
+.parts .btn { min-height: 34px; padding: 4px 10px; }
+.parts:empty::after { content: "Пока пусто. Нажми «Собрать трек» или добавь часть."; color: var(--dim); font-size: 13px; }
+.dlabel b.mute-t { cursor: pointer; border-radius: 4px; padding: 0 2px; }
+.dlabel b.mute-t:hover { background: var(--line); }
+.drow.muted .cell { opacity: .3; }
+.drow.muted .dlabel b { text-decoration: line-through; color: var(--dim); }
 .pats { display: flex; gap: 4px; flex-wrap: wrap; }
 .pat { min-width: 38px; min-height: 38px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-family: var(--mono); position: relative; }
 .pat.has::after { content: ""; position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--dim); }
@@ -159,7 +172,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
 
 <div class="app">
   <header>
-    <h1>Acid <span>Remote</span> <small class="build" title="Номер версии: если он не изменился после обновления, открыта старая копия">сборка 14</small></h1>
+    <h1>Acid <span>Remote</span> <small class="build" title="Номер версии: если он не изменился после обновления, открыта старая копия">сборка 16</small></h1>
     <div class="row">
       <div class="status"><i class="dot" id="midiDot"></i><span id="midiStatus">MIDI не подключён</span></div>
       <button class="btn primary" id="connect">Подключить MIDI</button>
@@ -282,6 +295,24 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   </section>
   </div>
 
+  <section class="panel song">
+    <div class="row spread">
+      <h2>Track</h2>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="songOn"> Играть трек</label>
+        <label class="check"><input type="checkbox" id="songLoop"> По кругу</label>
+        <output class="msg" id="songStatus"></output>
+      </div>
+    </div>
+    <ol class="parts" id="parts"></ol>
+    <div class="row">
+      <button class="btn primary" id="partAdd" title="Запоминает, что сейчас выбрано: паттерны, какие машины играют и какие инструменты выключены">+ Часть из того, что сейчас</button>
+      <button class="btn" id="songAuto">Собрать трек</button>
+      <button class="btn" id="songClear">Очистить</button>
+    </div>
+    <p class="msg">Трек — это части одна за другой: сколько тактов играть и что звучит. «Собрать трек» делает его сам: начало на хэтах, развитие (бочка, бас, весь ритм), брейк, кульминация и спад, где инструменты уходят по одному. Свою часть добавляешь так: выключи инструменты кликом по названию у барабанов (BD, SD, CH…), выбери паттерны и машины, нажми «+ Часть». С галочкой «Играть трек» Play проигрывает трек до конца и останавливается, с «По кругу» начинает заново.</p>
+  </section>
+
   <details>
     <summary>Как подключить</summary>
     <ul>
@@ -351,6 +382,8 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     if (S.bass.on === undefined) S.bass.on = true;
     if (S.bass.mode !== 'own') S.bass.mode = 'notes';
     if (S.drums.mode !== 'own') S.drums.mode = 'notes';
+    if (!S.drums.mute || typeof S.drums.mute !== 'object') S.drums.mute = {};
+    if (!S.song || !Array.isArray(S.song.parts)) S.song = { on: false, loop: false, parts: [] };
     if (S.drums.on === undefined) S.drums.on = true;
   })();
   // Edits may replace S.bass.steps / S.drums.pat wholesale; keep the bank in step.
@@ -574,7 +607,8 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     uiDirty = true;
   }
   function scheduleStep(i, t, dur) {
-    if (i === 0) { applyQueued('bass', t); applyQueued('drums', t); }
+    if (i === 0) { applyQueued('bass', t); applyQueued('drums', t); songBarStart(t); }
+    if (songEnded) return;
     const bc = S.bass.ch - 1;
     const st = playsNotes('bass') ? S.bass.steps[i] : { on: 0 };
     const nx = playsNotes('bass') ? S.bass.steps[(i + 1) % 16] : { on: 0 };
@@ -601,7 +635,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     const acc = (S.drums.pat.AC || [])[i];
     for (const [l, n] of (playsNotes('drums') ? S.drums.map : [])) {
       const v = (S.drums.pat[l] || [])[i];
-      if (!v || n === null) continue;
+      if (!v || n === null || S.drums.mute[l]) continue;
       send(S.drums.out, [0x90 | dc, n, v === 2 || acc ? 127 : 96], t);
       pDrum(l, n, v === 2 || !!acc, t);
       send(S.drums.out, [0x80 | dc, n, 0], t + 40);
@@ -627,6 +661,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   function play() {
     if (playing) return stop();
     ensureAudio();
+    songPos = null; songEnded = false;
     if (following()) {
       // Steps are driven by the machine's clock in onClock().
       playing = true; step = 0; held = null; vis.length = 0; clk.ticks = 0;
@@ -658,14 +693,14 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     allOff(t); held = null; pBassOff(performance.now());
     applyQueued('bass', t); applyQueued('drums', t);
     $('play').classList.remove('on'); $('play').textContent = '▶ Play';
-    setNow(-1);
+    setNow(-1); songPos = null; uiDirty = true;
   }
   function frame() {
     const now = performance.now();
     let last = null;
     while (vis.length && vis[0].t <= now) last = vis.shift();
     if (last && playing) setNow(last.i);
-    if (uiDirty) { uiDirty = false; save(); renderBass(); renderDrums(); renderMachines(); }
+    if (uiDirty) { uiDirty = false; save(); renderBass(); renderDrums(); renderMachines(); renderSong(); }
     requestAnimationFrame(frame);
   }
   function setNow(i) {
@@ -755,7 +790,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     let h = `<div class="drow hdr"><span></span>${idx.map(i => `<span class="cell">${i + 1}</span>`).join('')}</div>`;
     S.drums.map.forEach(([l, n], r) => {
       const pat = S.drums.pat[l] || (S.drums.pat[l] = Array(16).fill(0));
-      h += `<div class="drow"><span class="dlabel"><b>${l}</b>${n === null ? '<span class="msg">акц.</span>' : `<input type="number" min="0" max="127" id="dn-${l}" data-r="${r}" value="${n}" aria-label="MIDI-нота ${l}">`}</span>` +
+      h += `<div class="drow${S.drums.mute[l] ? ' muted' : ''}"><span class="dlabel"><b class="mute-t" data-mute="${l}" title="Клик — выключить или включить ${l}">${l}</b>${n === null ? '<span class="msg">акц.</span>' : `<input type="number" min="0" max="127" id="dn-${l}" data-r="${r}" value="${n}" aria-label="MIDI-нота ${l}">`}</span>` +
         idx.map(i => `<button class="cell${i % 4 === 0 ? ' beat' : ''}${pat[i] ? ' v' + pat[i] : ''}${i === nowStep ? ' now' : ''}" data-step="${i}" data-l="${l}" data-i="${i}" aria-label="${l} шаг ${i + 1}"></button>`).join('') + '</div>';
     });
     g.innerHTML = h;
@@ -1177,6 +1212,89 @@ Reply with only JSON in this shape:
     message(S.syncSrc ? 'Темп теперь задаёт машина. Крути темп на ней — компьютер и вторая машина пойдут следом.' : 'Синхронизация разъединена: темп снова задаёт компьютер.');
   };
 
+  /* ---------- Song: parts played one after another ---------- */
+  let songPos = null, songEnded = false;
+  function applyPart(pt, t) {
+    save();
+    S.drums.cur = pt.d; S.drums.pat = S.drums.patterns[pt.d];
+    S.bass.cur = pt.b; S.bass.steps = S.bass.patterns[pt.b];
+    S.drums.on = pt.dOn; S.drums.mute = Object.assign({}, pt.mute);
+    if (S.bass.on && !pt.bOn && held !== null) {
+      send(S.bass.out, [0x80 | (S.bass.ch - 1), held, 0], t); pBassOff(t); held = null;
+    }
+    S.bass.on = pt.bOn;
+  }
+  function songBarStart(t) {
+    const parts = S.song.parts;
+    if (!S.song.on || !parts.length) return;
+    if (!songPos) songPos = { idx: 0, bar: 0 };
+    else if (++songPos.bar >= (parts[songPos.idx] || {}).bars) {
+      songPos.bar = 0;
+      if (songPos.idx + 1 < parts.length) songPos.idx++;
+      else if (S.song.loop) songPos.idx = 0;
+      else { songEnded = true; setTimeout(() => { if (playing) stop(); }, Math.max(0, t - performance.now())); return; }
+    }
+    if (songPos.idx >= parts.length) songPos = { idx: 0, bar: 0 };
+    if (songPos.bar === 0) applyPart(parts[songPos.idx], t);
+    uiDirty = true;
+  }
+  const muteText = m => { const off = Object.keys(m).filter(k => m[k]); return off.length ? ' · без ' + off.join(', ') : ''; };
+  function renderSong() {
+    const parts = S.song.parts;
+    $('songOn').checked = !!S.song.on; $('songLoop').checked = !!S.song.loop;
+    $('parts').innerHTML = parts.map((pt, i) => `<li class="${playing && songPos && songPos.idx === i ? 'now' : ''}">
+      <span class="what">Барабаны ${pt.dOn ? 'П' + (pt.d + 1) + muteText(pt.mute) : '— тишина'} &nbsp;|&nbsp; Бас ${pt.bOn ? 'П' + (pt.b + 1) : '— тишина'}${pt.name ? ' &nbsp;<span class="msg">' + pt.name + '</span>' : ''}</span>
+      <select data-bars="${i}" aria-label="Тактов в части ${i + 1}">${[1, 2, 4, 8, 16].map(n => `<option value="${n}"${n === pt.bars ? ' selected' : ''}>${n} такт${n === 1 ? '' : n < 5 ? 'а' : 'ов'}</option>`).join('')}</select>
+      <button class="btn" data-up="${i}" aria-label="Выше"${i ? '' : ' disabled'}>▲</button>
+      <button class="btn" data-del="${i}" aria-label="Удалить часть">✕</button>
+    </li>`).join('');
+    const p = songPos && parts[songPos.idx];
+    $('songStatus').textContent = playing && S.song.on && p ? `часть ${songPos.idx + 1} из ${parts.length} · такт ${songPos.bar + 1}/${p.bars}` : '';
+  }
+  const snapshot = (extra) => Object.assign({ bars: 4, d: S.drums.cur, b: S.bass.cur, dOn: S.drums.on, bOn: S.bass.on, mute: Object.assign({}, S.drums.mute) }, extra);
+  $('partAdd').onclick = () => { S.song.parts.push(snapshot()); save(); renderSong(); };
+  $('songClear').onclick = () => { S.song.parts = []; songPos = null; save(); renderSong(); };
+  $('songLoop').onchange = e => { S.song.loop = e.target.checked; save(); };
+  $('songOn').onchange = e => { S.song.on = e.target.checked; songPos = null; save(); renderSong(); };
+  $('songAuto').onclick = () => {
+    const labels = S.drums.map.map(x => x[0]).filter(l => l !== 'AC');
+    const only = keep => { const m = {}; labels.forEach(l => { if (!keep.includes(l)) m[l] = true; }); return m; };
+    const hats = labels.filter(l => /^(CH|OH)$/.test(l));
+    const base = { d: S.drums.cur, b: S.bass.cur };
+    const snare = labels.filter(l => /^(SD|CP)$/.test(l));
+    const rest = labels.filter(l => ![...hats, 'BD', ...snare].includes(l));
+    S.song.parts = [
+      { ...base, bars: 4, dOn: true, bOn: false, mute: only(hats), name: 'начало: хэты' },
+      { ...base, bars: 4, dOn: true, bOn: false, mute: only([...hats, 'BD']), name: 'развитие: + бочка' },
+      { ...base, bars: 8, dOn: true, bOn: true, mute: only([...hats, 'BD']), name: 'развитие: + бас' },
+      { ...base, bars: 8, dOn: true, bOn: true, mute: only([...hats, 'BD', ...snare]), name: 'развитие: + малый, клэп' },
+      { ...base, bars: 4, dOn: false, bOn: true, mute: {}, name: 'брейк: только бас' },
+      { ...base, bars: 8, dOn: true, bOn: true, mute: {}, name: 'кульминация: всё' + (rest.length ? ' + ' + rest.join(', ') : '') },
+      { ...base, bars: 4, dOn: true, bOn: true, mute: only([...hats, 'BD']), name: 'спад: без малого' },
+      { ...base, bars: 4, dOn: true, bOn: false, mute: only([...hats, 'BD']), name: 'спад: без баса' },
+      { ...base, bars: 4, dOn: true, bOn: false, mute: only(hats), name: 'конец: хэты' }
+    ];
+    S.song.on = true; songPos = null; save(); renderSong();
+  };
+  $('parts').addEventListener('change', e => {
+    const sel = e.target.closest('[data-bars]'); if (!sel) return;
+    S.song.parts[+sel.dataset.bars].bars = +sel.value; save();
+  });
+  $('parts').addEventListener('click', e => {
+    const up = e.target.closest('[data-up]'), del = e.target.closest('[data-del]');
+    const P = S.song.parts;
+    if (up) { const i = +up.dataset.up; if (i > 0) [P[i - 1], P[i]] = [P[i], P[i - 1]]; }
+    else if (del) P.splice(+del.dataset.del, 1);
+    else return;
+    save(); renderSong();
+  });
+  $('drumGrid').addEventListener('click', e => {
+    const b = e.target.closest('[data-mute]'); if (!b) return;
+    const l = b.dataset.mute;
+    if (S.drums.mute[l]) delete S.drums.mute[l]; else S.drums.mute[l] = true;
+    save(); renderDrums();
+  });
+
   /* ---------- Machines: run/mute and pattern banks ---------- */
   const hasNotes = (m, i) => m === 'bass'
     ? S.bass.patterns[i].some(st => st.on)
@@ -1219,7 +1337,7 @@ Reply with only JSON in this shape:
   // Keep the "has notes" dots current after edits.
   document.addEventListener('click', e => { if (e.target.closest('.steps, .drum-grid, .editor, #rand, #bclear, #drand, #dclear, #presetGo, #aiUndo')) setTimeout(renderMachines, 0); });
 
-  syncControls(); fillOutputs(); renderBass(); renderDrums(); renderMachines(); frame(); initAI();
+  syncControls(); fillOutputs(); renderBass(); renderDrums(); renderMachines(); renderSong(); frame(); initAI();
   if (nativeMIDI && navigator.permissions) {
     navigator.permissions.query({ name: 'midi' }).then(p => { if (p.state === 'granted') connect(); }).catch(() => {});
   }
