@@ -177,7 +177,6 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     <div class="row">
       <label class="f">Swing <input type="range" id="swing" min="50" max="75" step="1"></label>
       <output class="msg" id="swingOut">50%</output>
-      <label class="check"><input type="checkbox" id="clock"> Слать MIDI Clock и Start/Stop</label>
       <label class="check"><input type="checkbox" id="phoneSound"> Звук в телефоне</label>
     </div>
   </section>
@@ -217,6 +216,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       <button class="btn run" id="drumRun" title="Включить или заглушить драм-машину. Во время игры срабатывает с начала следующего такта.">ИГРАЕТ</button>
       <span class="msg">Паттерн</span>
       <div class="pats" id="drumPats"></div>
+      <label class="f">Что играет<select id="drumMode"><option value="notes">Ноты отсюда</option><option value="own">Свой паттерн машины</option></select></label>
     </div>
     <div class="row">
       <label class="f out-sel">Выход<select id="drumOut"></select></label>
@@ -239,6 +239,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       <button class="btn run" id="bassRun" title="Включить или заглушить TD-3. Во время игры срабатывает с начала следующего такта.">ИГРАЕТ</button>
       <span class="msg">Паттерн</span>
       <div class="pats" id="bassPats"></div>
+      <label class="f">Что играет<select id="bassMode"><option value="notes">Ноты отсюда</option><option value="own">Свой паттерн машины</option></select></label>
     </div>
     <div class="row">
       <label class="f out-sel">Выход<select id="bassOut"></select></label>
@@ -280,7 +281,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     </ul>
     <p><b>TD-3:</b> акцент передаётся силой нажатия (velocity 127), слайд — тем, что следующая нота включается раньше, чем выключается предыдущая. Так TD-3 сам делает глайд. Канал по умолчанию — 1, меняется в SynthTribe.</p>
     <p><b>Драм-машина:</b> обычно слушает канал 10. Номера нот в пресетах — заводские значения Behringer; если какой-то звук не играет, проверь раскладку в SynthTribe и поправь число.</p>
-    <p>Если включён «MIDI Clock», машины могут играть и свои собственные паттерны в темпе этой страницы.</p>
+    <p><b>«Что играет»</b> у каждой машины: «Ноты отсюда» — машина играет паттерн с экрана; «Свой паттерн машины» — Play и Stop отсюда запускают и останавливают паттерн, записанный в самой машине, в темпе этой страницы. Для второго режима источник синхронизации на машине должен быть USB.</p>
   </details>
 </div>
 
@@ -335,6 +336,8 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     S.drums.cur = Math.min(7, Math.max(0, S.drums.cur | 0));
     S.drums.pat = S.drums.patterns[S.drums.cur];
     if (S.bass.on === undefined) S.bass.on = true;
+    if (S.bass.mode !== 'own') S.bass.mode = 'notes';
+    if (S.drums.mode !== 'own') S.drums.mode = 'notes';
     if (S.drums.on === undefined) S.drums.on = true;
   })();
   // Edits may replace S.bass.steps / S.drums.pat wholesale; keep the bank in step.
@@ -429,7 +432,11 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     if (stampOK(o)) { try { o.send(data, t); return; } catch (e) {} }
     setTimeout(() => { try { o.send(data); } catch (e) {} }, t - now);
   }
-  const outsUsed = () => [...new Set([S.bass.out, S.drums.out].filter(Boolean))];
+  // Machines set to play their own pattern get clock and Start/Stop instead of notes.
+  const ownOuts = onlyRunning => [...new Set(['bass', 'drums']
+    .filter(m => S[m].mode === 'own' && S[m].out && (!onlyRunning || S[m].on))
+    .map(m => S[m].out))];
+  const playsNotes = m => S[m].on && S[m].mode !== 'own';
 
   /* ---------- Phone sound (Web Audio) ---------- */
   let ac = null, master = null, noiseBuf = null, bassV = null, lastHz = 110;
@@ -539,8 +546,10 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       if (m === 'bass') S.bass.steps = S.bass.patterns[q.pat];
       else S.drums.pat = S.drums.patterns[q.pat];
     }
+    if (q.start && S[m].mode === 'own' && S[m].on) send(S[m].out, [0xFA], t - 1);
     if ('on' in q) {
       S[m].on = q.on;
+      if (S[m].mode === 'own' && S[m].out) send(S[m].out, [q.on ? 0xFA : 0xFC], t - 1);
       if (m === 'bass' && !q.on && held !== null) {
         send(S.bass.out, [0x80 | (S.bass.ch - 1), held, 0], t);
         pBassOff(t); held = null;
@@ -551,8 +560,8 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   function scheduleStep(i, t, dur) {
     if (i === 0) { applyQueued('bass', t); applyQueued('drums', t); }
     const bc = S.bass.ch - 1;
-    const st = S.bass.on ? S.bass.steps[i] : { on: 0 };
-    const nx = S.bass.on ? S.bass.steps[(i + 1) % 16] : { on: 0 };
+    const st = playsNotes('bass') ? S.bass.steps[i] : { on: 0 };
+    const nx = playsNotes('bass') ? S.bass.steps[(i + 1) % 16] : { on: 0 };
     if (st.on) {
       const n = midiNote(st);
       const vel = st.a ? 127 : 80;
@@ -574,14 +583,14 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     }
     const dc = S.drums.ch - 1;
     const acc = (S.drums.pat.AC || [])[i];
-    for (const [l, n] of (S.drums.on ? S.drums.map : [])) {
+    for (const [l, n] of (playsNotes('drums') ? S.drums.map : [])) {
       const v = (S.drums.pat[l] || [])[i];
       if (!v || n === null) continue;
       send(S.drums.out, [0x90 | dc, n, v === 2 || acc ? 127 : 96], t);
       pDrum(l, n, v === 2 || !!acc, t);
       send(S.drums.out, [0x80 | dc, n, 0], t + 40);
     }
-    if (S.clock) for (const o of outsUsed()) for (let k = 0; k < 6; k++) send(o, [0xF8], t + k * dur / 6);
+    for (const o of ownOuts(false)) for (let k = 0; k < 6; k++) send(o, [0xF8], t + k * dur / 6);
     vis.push({ i, t });
   }
   function tick() {
@@ -604,7 +613,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     ensureAudio();
     playing = true; step = 0; held = null; vis.length = 0;
     nextT = performance.now() + 60;
-    if (S.clock) outsUsed().forEach(o => send(o, [0xFA], nextT - 1));
+    ownOuts(true).forEach(o => send(o, [0xFA], nextT - 1));
     tick();
     timer = setInterval(tick, 20);
     $('play').classList.add('on'); $('play').textContent = '■ Stop';
@@ -612,7 +621,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
   function stop() {
     playing = false; clearInterval(timer); vis.length = 0;
     const t = performance.now() + 150;
-    if (S.clock) outsUsed().forEach(o => send(o, [0xFC], t));
+    ownOuts(false).forEach(o => send(o, [0xFC], t));
     allOff(t); held = null; pBassOff(performance.now());
     applyQueued('bass', t); applyQueued('drums', t);
     $('play').classList.remove('on'); $('play').textContent = '▶ Play';
@@ -767,7 +776,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     $('bassCh').value = S.bass.ch; $('drumCh').value = S.drums.ch;
     $('bassBase').value = S.bass.base; $('kit').value = S.drums.kit;
     $('bpmOut').textContent = S.bpm; $('swing').value = S.swing; $('swingOut').textContent = S.swing + '%';
-    $('clock').checked = !!S.clock;
+    $('bassMode').value = S.bass.mode; $('drumMode').value = S.drums.mode;
     $('phoneSound').checked = phoneOn();
   }
   $('phoneSound').onchange = e => {
@@ -794,7 +803,21 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => clearTimeout(hold)));
   }
   $('swing').oninput = e => { S.swing = +e.target.value; $('swingOut').textContent = S.swing + '%'; save(); };
-  $('clock').onchange = e => { S.clock = e.target.checked; save(); };
+  for (const [id, m] of [['bassMode', 'bass'], ['drumMode', 'drums']]) {
+    $(id).onchange = e => {
+      S[m].mode = e.target.value; save();
+      const o = S[m].out;
+      if (!o) return;
+      if (S[m].mode === 'own') {
+        if (m === 'bass' && held !== null) { send(o, [0x80 | (S.bass.ch - 1), held, 0]); pBassOff(performance.now()); held = null; }
+        message(playing ? 'Машина запустит свой паттерн с начала следующего такта.' : 'Теперь Play запустит собственный паттерн машины. На машине источник синхронизации должен быть USB.');
+        if (playing && S[m].on) queued[m] = Object.assign(queued[m] || {}, { start: true });
+      } else {
+        send(o, [0xFC]);
+        message('Остановил собственный паттерн машины. Теперь она играет ноты отсюда.');
+      }
+    };
+  }
   $('play').onclick = play;
   let scan = null;
   $('scanCh').onclick = () => {
