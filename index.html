@@ -1081,7 +1081,7 @@ Reply with only JSON in this shape:
     syncIn = S.syncSrc ? inMap[S.syncSrc] || null : null;
     clk = { ticks: 0, times: [] };
     if (syncIn) {
-      try { syncIn.onmidimessage = e => onClock(e.data); } catch (e) {}
+      try { syncIn.onmidimessage = e => { clk.seen = (clk.seen || 0) + 1; onClock(e.data); }; } catch (e) {}
       if (typeof syncIn.open === 'function') { try { syncIn.open(); } catch (e) {} }
     }
     renderSync();
@@ -1089,7 +1089,8 @@ Reply with only JSON in this shape:
   function renderSync() {
     const f = following();
     $('bpmDown').disabled = f; $('bpmUp').disabled = f;
-    $('syncInfo').textContent = !f ? '' : clk.bpm ? 'темп от машины: ' + clk.bpm.toFixed(1) + ' BPM' : 'жду темп — запусти машину';
+    const fresh = clk.times.length && performance.now() - clk.times[clk.times.length - 1] < 1000;
+    $('syncInfo').textContent = !f ? '' : fresh && clk.bpm ? 'темп от машины: ' + clk.bpm.toFixed(1) + ' BPM' : 'жду темп — нажми Play на машине · сигналов от неё: ' + (clk.seen || 0);
   }
   function onClock(d) {
     const b = d && d[0];
@@ -1121,6 +1122,7 @@ Reply with only JSON in this shape:
     else if (b === 0xFB) { if (!playing) play(); }
     else if (b === 0xFC) { if (playing) stop(); }
   }
+  setInterval(() => { if (following()) renderSync(); }, 500);
   $('syncSrc').onchange = e => {
     if (playing) stop();
     S.syncSrc = e.target.value; save(); attachSync();
