@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121317">
 <title>Acid Remote</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -182,9 +183,10 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
 
 <div class="app">
   <header>
-    <h1>Acid <span>Remote</span> <small class="build" title="Номер версии: если он не изменился после обновления, открыта старая копия">сборка 17</small></h1>
+    <h1>Acid <span>Remote</span> <small class="build" title="Номер версии: если он не изменился после обновления, открыта старая копия">сборка 18</small></h1>
     <div class="row">
       <div class="status"><i class="dot" id="midiDot"></i><span id="midiStatus">MIDI не подключён</span></div>
+      <button class="btn" id="install" hidden>Установить приложение</button>
       <button class="btn primary" id="connect">Подключить MIDI</button>
     </div>
   </header>
@@ -236,7 +238,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
 <div class="rack">
   <section class="panel machine drums">
     <div class="row spread">
-      <h2>RD · барабаны</h2>
+      <h2><span id="drumDev">RD</span> · барабаны</h2>
       <div class="row">
         <div class="seg half-toggle" id="halfSeg"><button data-h="0">1–8</button><button data-h="1">9–16</button></div>
         <button class="btn" id="drand">Random</button>
@@ -264,7 +266,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
 
   <section class="panel machine bass">
     <div class="row spread">
-      <h2>TD-3 · бас</h2>
+      <h2><span id="bassDev">TD-3</span> · бас</h2>
       <div class="row">
         <button class="btn" id="rand">Random acid</button>
         <button class="btn" id="bclear">Clear</button>
@@ -363,6 +365,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     'RD-6 modded (606 + AC)': [['AC',null],['BD',36],['SD',40],['LT',45],['HT',50],['CP',39],['CY',49],['OH',46],['CH',42]],
     'RD-8 (808)': [['BD',36],['SD',40],['LT',45],['MT',47],['HT',50],['RS',37],['CP',39],['CB',56],['CY',51],['OH',46],['CH',42],['MA',70],['CL',75]],
     'RD-9 (909)': [['BD',36],['SD',40],['LT',45],['MT',47],['HT',50],['RS',37],['CP',39],['CH',42],['OH',46],['CR',49],['RD',51]],
+    'Korg Volca Beats': [['BD',36],['SD',38],['LT',43],['HT',50],['CH',42],['OH',46],['CP',39],['CL',75],['AG',67],['CY',49]],
     'Roland TR-8S / GM': [['BD',36],['SD',38],['LT',43],['MT',47],['HT',50],['RS',37],['CP',39],['CH',42],['OH',46],['CC',49],['RC',51]]
   };
   const STORE = 'acid-remote-v1';
@@ -391,10 +394,14 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     bass: { out: '', ch: 1, base: 36, steps: defaultBass },
     drums: { out: '', ch: 10, kit: 'RD-8 (808)', map: KITS['RD-8 (808)'].map(x => x.slice()), pat: defaultDrums('RD-8 (808)') }
   };
+  let hadSaved = false;
   try {
     const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
-    if (saved && saved.bass && saved.drums && KITS[saved.drums.kit]) S = saved;
+    if (saved && saved.bass && saved.drums && KITS[saved.drums.kit]) { S = saved; hadSaved = true; }
   } catch (e) {}
+  // People who used the app before device memory existed keep their working
+  // channels on the first connect instead of getting profile defaults.
+  let legacyDevices = hadSaved && !S.devices;
   const emptyDrums = () => { const p = {}; for (const [l] of S.drums.map) p[l] = Array(16).fill(0); return p; };
   function normalize() {
     if (!Array.isArray(S.bass.patterns)) S.bass.patterns = [S.bass.steps];
@@ -409,6 +416,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     if (S.bass.mode !== 'own') S.bass.mode = 'notes';
     if (S.drums.mode !== 'own') S.drums.mode = 'notes';
     if (!S.drums.mute || typeof S.drums.mute !== 'object') S.drums.mute = {};
+    if (!S.devices || typeof S.devices !== 'object') S.devices = {};
     if (!S.song || !Array.isArray(S.song.parts)) S.song = { on: false, loop: false, parts: [] };
     if (S.drums.on === undefined) S.drums.on = true;
   }
@@ -486,8 +494,8 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     $('midiDot').classList.toggle('on', outs.length > 0);
     $('midiStatus').textContent = midi ? (outs.length ? 'Выходов: ' + outs.length : 'Устройства не найдены — воткни USB') : 'MIDI не подключён';
     const pick = (cur, re) => outMap[cur] ? cur : (outs.find(o => re.test(o.name || '')) || {})._key || '';
-    S.bass.out = pick(S.bass.out, /TD-?3/i);
-    S.drums.out = pick(S.drums.out, /RD-?\d|TR-?\d|drum/i);
+    S.bass.out = pick(S.bass.out, /TD-?3|TB-?3|volca\s*bass/i);
+    S.drums.out = pick(S.drums.out, /RD-?\d|RHYTHM DESIGNER|TR-?\d|volca\s*beats|drum/i);
     const esc = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
     for (const [id, cur] of [['bassOut', S.bass.out], ['drumOut', S.drums.out]]) {
       const el = $(id);
@@ -495,7 +503,52 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       el.value = cur;
     }
     fillInputs();
+    for (const m of ['bass', 'drums']) {
+      const n = deviceName(m);
+      if (n && n !== lastDevice[m]) applyDevice(m);
+      lastDevice[m] = n;
+    }
+    if (midi) legacyDevices = false;
+    renderDeviceLabels();
     save();
+  }
+  /* ---------- Device profiles: recognise machines, remember their settings ---------- */
+  const PROFILES = [
+    { re: /TD-?3/i, role: 'bass', label: 'TD-3', ch: 1, base: 36 },
+    { re: /TB-?3/i, role: 'bass', label: 'TB-3', ch: 1, base: 36 },
+    { re: /volca\s*bass/i, role: 'bass', label: 'Volca Bass', ch: 1, base: 36 },
+    { re: /RD-?6/i, role: 'drums', label: 'RD-6', kit: 'RD-6 (606)', ch: 10 },
+    { re: /RD-?8/i, role: 'drums', label: 'RD-8', kit: 'RD-8 (808)', ch: 10 },
+    { re: /RD-?9/i, role: 'drums', label: 'RD-9', kit: 'RD-9 (909)', ch: 10 },
+    { re: /TR-?8|TR-?6S/i, role: 'drums', label: 'TR-8S', kit: 'Roland TR-8S / GM', ch: 10 },
+    { re: /volca\s*beats/i, role: 'drums', label: 'Volca Beats', kit: 'Korg Volca Beats', ch: 10 }
+  ];
+  const lastDevice = { bass: '', drums: '' };
+  const deviceName = m => { const o = outMap[S[m].out]; return o ? String(o.name || '') : ''; };
+  const profileFor = m => { const n = deviceName(m); return n ? PROFILES.find(pr => pr.role === m && pr.re.test(n)) : null; };
+  function rememberDevice(m) {
+    const n = deviceName(m); if (!n) return;
+    S.devices[n] = m === 'bass' ? { ch: S.bass.ch, base: S.bass.base } : { ch: S.drums.ch, kit: S.drums.kit };
+  }
+  function applyDevice(m) {
+    const n = deviceName(m); if (!n) return;
+    const known = S.devices[n], pr = profileFor(m);
+    if (known) {
+      S[m].ch = known.ch;
+      if (m === 'bass' && known.base) S.bass.base = known.base;
+      if (m === 'drums' && known.kit && KITS[known.kit] && known.kit !== S.drums.kit) setKit(known.kit);
+    } else if (!legacyDevices && pr) {
+      S[m].ch = pr.ch;
+      if (pr.base) S.bass.base = pr.base;
+      if (pr.kit && pr.kit !== S.drums.kit) setKit(pr.kit);
+      message('Узнал ' + pr.label + ': канал ' + pr.ch + (pr.kit ? ', раскладка ' + pr.kit : '') + '. Если молчит — нажми «Найти канал», программа запомнит.');
+    }
+    rememberDevice(m);
+    syncControls(); renderBass(); renderDrums(); renderDeviceLabels();
+  }
+  function renderDeviceLabels() {
+    const lab = m => { const pr = profileFor(m), n = deviceName(m); return pr ? pr.label : n ? n.slice(0, 18) : (m === 'bass' ? 'Синт' : 'Драм-машина'); };
+    $('bassDev').textContent = lab('bass'); $('drumDev').textContent = lab('drums');
   }
   const sentNotes = {};
   function send(outId, data, t) {
@@ -879,18 +932,18 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
     S.phone = e.target.checked; save();
     if (S.phone) ensureAudio(); else if (ac) bassV.vca.gain.setTargetAtTime(0, ac.currentTime, 0.01);
   };
-  $('bassOut').onchange = e => { S.bass.out = e.target.value; save(); };
-  $('drumOut').onchange = e => { S.drums.out = e.target.value; save(); };
-  $('bassCh').onchange = e => { allOff(); S.bass.ch = +e.target.value; save(); };
-  $('drumCh').onchange = e => { S.drums.ch = +e.target.value; save(); };
-  $('bassBase').onchange = e => { allOff(); S.bass.base = +e.target.value; save(); renderBass(); };
-  $('kit').onchange = e => {
-    const k = e.target.value, old = S.drums.pat;
+  $('bassOut').onchange = e => { S.bass.out = e.target.value; lastDevice.bass = deviceName('bass'); applyDevice('bass'); save(); };
+  $('drumOut').onchange = e => { S.drums.out = e.target.value; lastDevice.drums = deviceName('drums'); applyDevice('drums'); save(); };
+  $('bassCh').onchange = e => { allOff(); S.bass.ch = +e.target.value; rememberDevice('bass'); save(); };
+  $('drumCh').onchange = e => { S.drums.ch = +e.target.value; rememberDevice('drums'); save(); };
+  $('bassBase').onchange = e => { allOff(); S.bass.base = +e.target.value; rememberDevice('bass'); save(); renderBass(); };
+  function setKit(k) {
+    const old = S.drums.pat;
     S.drums.kit = k; S.drums.map = KITS[k].map(x => x.slice());
     S.drums.pat = {};
     for (const [l] of S.drums.map) S.drums.pat[l] = old[l] ? old[l].slice() : Array(16).fill(0);
-    save(); renderDrums();
-  };
+  }
+  $('kit').onchange = e => { setKit(e.target.value); rememberDevice('drums'); save(); renderDrums(); };
   const setBpm = v => { if (following()) return; S.bpm = Math.max(40, Math.min(240, v)); $('bpmOut').textContent = S.bpm; save(); };
   let hold = null;
   for (const [id, d] of [['bpmDown', -1], ['bpmUp', 1]]) {
@@ -944,7 +997,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
       const done = scan; clearInterval(done.timer); scan = null;
       $(done.btnId).textContent = 'Найти канал'; $(done.btnId).classList.remove('on');
       if (done.m !== m) return;
-      S[m].ch = done.ch; save(); syncControls();
+      S[m].ch = done.ch; rememberDevice(m); save(); syncControls();
       message(machine + ' теперь на канале ' + done.ch + '.');
       return;
     }
@@ -1250,7 +1303,7 @@ Reply with only JSON in this shape:
     save();
     const d = JSON.parse(JSON.stringify(S));
     for (const [m, k] of DEVICE_KEYS) delete d[m][k];
-    delete d.syncSrc; delete d.phone;
+    delete d.syncSrc; delete d.phone; delete d.devices;
     return d;
   }
   const fmtDate = ts => { try { return new Date(ts).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
@@ -1267,13 +1320,14 @@ Reply with only JSON in this shape:
     if (playing) stop();
     const keep = {};
     for (const [m, k] of DEVICE_KEYS) keep[m + k] = S[m][k];
-    const syncSrc = S.syncSrc, phone = S.phone;
+    const syncSrc = S.syncSrc, phone = S.phone, devices = S.devices;
     S = JSON.parse(JSON.stringify(data));
     if (!S.bass || !S.drums) throw new Error('bad session');
     if (!KITS[S.drums.kit]) { S.drums.kit = 'RD-6 (606)'; S.drums.map = KITS['RD-6 (606)'].map(x => x.slice()); }
     for (const [m, k] of DEVICE_KEYS) S[m][k] = keep[m + k];
-    S.syncSrc = syncSrc; S.phone = phone;
-    normalize(); sel = 0; songPos = null; undo = null;
+    S.syncSrc = syncSrc; S.phone = phone; S.devices = devices;
+    normalize();
+    if (deviceName('drums')) applyDevice('drums'); sel = 0; songPos = null; undo = null;
     save(); syncControls(); renderBass(); renderDrums(); renderMachines(); renderSong();
   }
   $('libSave').onclick = () => {
@@ -1472,6 +1526,24 @@ Reply with only JSON in this shape:
   $('drumPats').addEventListener('click', e => { const b = e.target.closest('[data-pat]'); if (b) selectPat('drums', +b.dataset.pat); });
   // Keep the "has notes" dots current after edits.
   document.addEventListener('click', e => { if (e.target.closest('.steps, .drum-grid, .editor, #rand, #bclear, #drand, #dclear, #presetGo, #aiUndo')) setTimeout(renderMachines, 0); });
+
+  /* ---------- Installable app (only on its own site, never inside Claude) ---------- */
+  (function installable() {
+    if (window.claude || (location.protocol !== 'https:' && location.hostname !== 'localhost') || /claude\.(ai|site)|claudeusercontent/.test(location.hostname)) return;
+    for (const [rel, href] of [['manifest', 'manifest.json'], ['apple-touch-icon', 'icon-192.png']]) {
+      const l = document.createElement('link'); l.rel = rel; l.href = href; document.head.appendChild(l);
+    }
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    let deferred = null;
+    addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; $('install').hidden = false; });
+    addEventListener('appinstalled', () => { $('install').hidden = true; });
+    $('install').onclick = async () => {
+      if (!deferred) return;
+      deferred.prompt();
+      try { await deferred.userChoice; } catch (e) {}
+      deferred = null; $('install').hidden = true;
+    };
+  })();
 
   syncControls(); fillOutputs(); renderBass(); renderDrums(); renderMachines(); renderSong(); renderLib(); frame(); initAI();
   if (nativeMIDI && navigator.permissions) {
