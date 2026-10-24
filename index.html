@@ -41,6 +41,7 @@ button { cursor: pointer; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h1 { font-family: var(--display); font-weight: 700; font-size: 26px; letter-spacing: .04em; margin: 0; text-transform: uppercase; }
 h1 span { color: var(--bass); }
+h1 .build { font-family: var(--mono); font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--dim); font-weight: 500; }
 h2 { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: .08em; text-transform: uppercase; margin: 0; }
 .status { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 8px; min-width: 0; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: none; }
@@ -158,7 +159,7 @@ details code { font-family: var(--mono); font-size: 13px; color: var(--bass); }
 
 <div class="app">
   <header>
-    <h1>Acid <span>Remote</span></h1>
+    <h1>Acid <span>Remote</span> <small class="build" title="Номер версии: если он не изменился после обновления, открыта старая копия">сборка 13</small></h1>
     <div class="row">
       <div class="status"><i class="dot" id="midiDot"></i><span id="midiStatus">MIDI не подключён</span></div>
       <button class="btn primary" id="connect">Подключить MIDI</button>
@@ -1102,6 +1103,10 @@ Reply with only JSON in this shape:
     const b = d && d[0];
     if (b === 0xF8) {
       const now = performance.now();
+      // Clock resuming after a pause means the machine was started: start too,
+      // so its own Play is enough even if it never sends a Start message.
+      const lastTick = clk.times.length ? clk.times[clk.times.length - 1] : 0;
+      if (!playing && now - lastTick > 300) { clk.times = []; play(); }
       clk.times.push(now);
       if (clk.times.length > 25) clk.times.shift();
       if (clk.times.length >= 7) {
@@ -1128,7 +1133,12 @@ Reply with only JSON in this shape:
     else if (b === 0xFB) { if (!playing) play(); }
     else if (b === 0xFC) { if (playing) stop(); }
   }
-  setInterval(() => { if (following()) renderSync(); }, 500);
+  setInterval(() => {
+    if (!following()) return;
+    renderSync();
+    const last = clk.times.length ? clk.times[clk.times.length - 1] : 0;
+    if (playing && last && performance.now() - last > 700) stop();
+  }, 500);
   // Why a machine is (not) receiving notes, in plain words.
   setInterval(() => {
     for (const [m, id] of [['bass', 'bassSent'], ['drums', 'drumSent']]) {
